@@ -209,10 +209,11 @@ Assets/
 
 ### 依存方向
 ```
-Presentation → Application → Domain
-Infrastructure → Domain (Domainのインターフェースを実装する形でInfrastructureが依存される)
-Presentation → Infrastructure は不可。Applicationを経由する。
-Domain は他レイヤーに依存しない。
+Domain は他レイヤーに依存しない(参照なし)。
+Application → Domain
+Infrastructure → Application, Domain (Domainのインターフェースを実装する形でInfrastructureが依存される)
+Presentation → Application, Domain
+Presentation と Infrastructure は相互に参照しない。
 ```
 
 ### イベント通知方針
@@ -265,7 +266,7 @@ Domain は他レイヤーに依存しない。
 - **Phase 1: 完了**。Git初期化、`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`、最小CI(`.github/workflows/repository-check.yml`)を作成し、初回コミット済み。`main`ブランチは`origin/main`(GitHub)へpush済み。
 - **Phase 2: 設計承認済み**。7.要承認事項の全7項目についてユーザーによる方針決定が完了し、承認済み。決定内容は4.設計/5.規約/7.要承認事項へ反映済み。
 - **T-001: 完了**。`Assets/_Project/`配下の基盤ディレクトリ(17フォルダ)を作成済み(コミット済み)。
-- **T-002: 完了**。レイヤー別Assembly Definition(asmdef)7個を作成済み(現在の作業ブランチ`feature/project-foundation`上でワーキングツリーに存在、**未コミット**)。
+- **T-002: 完了・コミット済み**。レイヤー別Assembly Definition(asmdef)7個を作成し、コミット済み(`feature/project-foundation`ブランチ、commit `a823f77` "build: define Unity assembly boundaries")。ブランチ自体は`origin`へ未push。
 - **ゲーム実装: 未着手**。ゲーム機能・C#クラス(Domain/Application/Infrastructure/Presentationの実装コード)・テストコードはいずれも未実装(コード0行、asmdefの外枠のみ存在)。
 
 ### 完了済み
@@ -280,7 +281,7 @@ Domain は他レイヤーに依存しない。
   - Unity向け`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`(MIT, Copyright 2026, 著作権者は暫定で `floating-islands-rpg contributors`)、最小CI `.github/workflows/repository-check.yml` を作成。
   - 初回コミット2件を実施し、`main`を`origin`(GitHub: `floating-islands-rpg`)へpush済み(`origin/main`と同期済み)。
 - **T-001 プロジェクト基盤ディレクトリの作成(完了・コミット済み)**: `Assets/_Project/`配下にRuntime(Domain/Application/Presentation/Infrastructure)、Editor、Tests(EditMode/PlayMode)、Scenes、Prefabs、ScriptableObjects、UI、Art、Audio、Settingsの17フォルダをUnity MCP経由で作成。空フォルダのGit管理のため`.gitkeep`を配置。
-- **T-002 レイヤー別Assembly Definitionの作成(完了・未コミット)**: 7個のasmdefを作成。
+- **T-002 レイヤー別Assembly Definitionの作成(完了・コミット済み)**: 7個のasmdefを作成し、commit `a823f77`("build: define Unity assembly boundaries")でコミット済み。
   - `FloatingIslandsRpg.Domain`, `FloatingIslandsRpg.Application`, `FloatingIslandsRpg.Infrastructure`, `FloatingIslandsRpg.Presentation`, `FloatingIslandsRpg.Editor`, `FloatingIslandsRpg.Tests.EditMode`, `FloatingIslandsRpg.Tests.PlayMode`。
   - Domain / Application は `noEngineReferences: true`(UnityEngine非依存)。
   - 依存方向(Domain ← Application ← Presentation/Infrastructure、DomainからPresentation/Infrastructureへの依存なし、Presentation⇔Infrastructure間の直接依存なし)と循環参照なしを確認済み(Unityコンパイル成功、および複数回の監査で確認)。
@@ -290,8 +291,8 @@ Domain は他レイヤーに依存しない。
 - Domain/Application/Infrastructure/Presentationの実装コード(C#クラス)が1つも存在しない(asmdefの外枠のみ)。
 - ゲームロジック・UI・Prefab・ScriptableObjectは一切未実装。
 - EditMode/PlayModeテストコードが1つも存在しない(Test Assembly自体はT-002で作成済み)。
-- T-002の変更(asmdef 7個 + PROJECT.md更新分)が未コミット(現在の作業ブランチ`feature/project-foundation`のワーキングツリーに存在)。
-- `feature/project-foundation`ブランチが`origin`へ未push。
+- T-002に関するPROJECT.md記述更新分(本節を含む)が未コミット(asmdef本体はcommit `a823f77`でコミット済み)。
+- `feature/project-foundation`ブランチが`origin`へ未push(T-001の`c29af6b`、T-002の`a823f77`ともに未push)。
 - CIの実行結果は未確認(`main`へのpush時点のCI結果は未確認、`feature/project-foundation`はpush自体が未実施のため実行されていない)。
 
 ### 既知の問題
@@ -301,7 +302,7 @@ Domain は他レイヤーに依存しない。
 ### 次に行うこと
 - 次のタスクは **T-003(Scene名定数の定義)**。依存タスクT-002は完了済みのため着手可能。
 - **T-004(ステータス計算ロジック)** もT-002のみに依存するためT-003と並行して着手可能だが、現時点では未着手(着手はユーザー指示を待つ)。
-- T-002の変更(asmdef 7個、PROJECT.md更新分)をコミットする(人間の判断・実行を待つ、本セッションでは未実施)。
+- 本PROJECT.mdの更新分をコミットする(asmdef本体はcommit `a823f77`で反映済み。人間の判断・実行を待つ、本セッションでは未実施)。
 - `feature/project-foundation`ブランチを`origin`へpushする(人間の判断・実行を待つ)。
 - push後、CI(`.github/workflows/repository-check.yml`)が正しく実行され成功することを確認する。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
@@ -326,13 +327,13 @@ Domain は他レイヤーに依存しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)が完了し、次はT-003以降に進める状態。
+> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)が完了・コミット済みで、次はT-003以降に進める状態。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
 |---------|------|----------|----------|----------|------------|
 | T-001 | プロジェクト基盤ディレクトリの作成(完了) | `Assets/_Project/Runtime/{Domain,Application,Presentation,Infrastructure}`, `Assets/_Project/Editor`, `Assets/_Project/Tests/{EditMode,PlayMode}`, `Assets/_Project/{Scenes,Prefabs,ScriptableObjects,UI,Art,Audio,Settings}` | 上記フォルダがすべて作成され、空でもUnityにエラーなく認識される | Unity Editorでフォルダ構成を目視確認、Consoleにエラーが出ないこと | なし |
-| T-002 | レイヤー別asmdefの作成(完了) | `FloatingIslandsRpg.Domain.asmdef`, `FloatingIslandsRpg.Application.asmdef`, `FloatingIslandsRpg.Infrastructure.asmdef`, `FloatingIslandsRpg.Presentation.asmdef`, `FloatingIslandsRpg.Editor.asmdef`, `FloatingIslandsRpg.Tests.EditMode.asmdef`, `FloatingIslandsRpg.Tests.PlayMode.asmdef` | 7個のasmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
+| T-002 | レイヤー別asmdefの作成(完了・コミット済み: `a823f77`) | `FloatingIslandsRpg.Domain.asmdef`, `FloatingIslandsRpg.Application.asmdef`, `FloatingIslandsRpg.Infrastructure.asmdef`, `FloatingIslandsRpg.Presentation.asmdef`, `FloatingIslandsRpg.Editor.asmdef`, `FloatingIslandsRpg.Tests.EditMode.asmdef`, `FloatingIslandsRpg.Tests.PlayMode.asmdef` | 7個のasmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
 | T-003 | Scene名定数の定義 | `Domain`または`Infrastructure`層にSceneID/Scene名の定数(enum等) | マジックストリングでのSceneManager呼び出しを避けられる定義が用意されている | コードレビューで直書き文字列がないことを確認 | T-002 |
 | T-004 | ステータス計算ロジック(Domain) | HP/MP/攻撃力等の基礎ステータスとレベルアップ時の成長計算 | レベル1〜想定最大レベルまでのステータスが決定的に計算できる | EditModeテストで代表レベルの期待値と一致することを確認 | T-002 |
 | T-005 | 戦闘計算ロジック(Domain) | ダメージ計算、命中/回避、行動順決定 | 攻撃側/防御側のステータスからダメージ量・行動順が一意に決定できる | EditModeテストで既知の入力に対する出力を検証 | T-004 |
