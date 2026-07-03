@@ -286,13 +286,13 @@ Presentation と Infrastructure は相互に参照しない。
   - Domain / Application は `noEngineReferences: true`(UnityEngine非依存)。
   - 依存方向(Domain ← Application ← Presentation/Infrastructure、DomainからPresentation/Infrastructureへの依存なし、Presentation⇔Infrastructure間の直接依存なし)と循環参照なしを確認済み(Unityコンパイル成功、および複数回の監査で確認)。
   - 詳細は4.設計「Assembly Definition方針」参照。
+- **PROJECT.mdの文書整合修正(完了・コミット済み)**: T-001/T-002完了に伴う「6.現状」「4.設計(依存方向)」等の記述整合をcommit `dbd9ed3`("docs: align project status with assembly setup")でコミット済み。
 
 ### 未完了
 - Domain/Application/Infrastructure/Presentationの実装コード(C#クラス)が1つも存在しない(asmdefの外枠のみ)。
 - ゲームロジック・UI・Prefab・ScriptableObjectは一切未実装。
 - EditMode/PlayModeテストコードが1つも存在しない(Test Assembly自体はT-002で作成済み)。
-- T-002に関するPROJECT.md記述更新分(本節を含む)が未コミット(asmdef本体はcommit `a823f77`でコミット済み)。
-- `feature/project-foundation`ブランチが`origin`へ未push(T-001の`c29af6b`、T-002の`a823f77`ともに未push)。
+- `feature/project-foundation`ブランチが`origin`へ未push(T-001の`c29af6b`、T-002の`a823f77`、文書整合修正の`dbd9ed3`ともに未push)。
 - CIの実行結果は未確認(`main`へのpush時点のCI結果は未確認、`feature/project-foundation`はpush自体が未実施のため実行されていない)。
 
 ### 既知の問題
@@ -300,11 +300,12 @@ Presentation と Infrastructure は相互に参照しない。
 - Unity MCPパッケージ自体に起因すると見られる`[WebSocket] Unexpected receive error`という1件のConsole Warningが、`refresh_unity`実行時などに断続的に発生することがある(ゲーム側のコード・アセットには起因しない)。発生の有無はセッションごとに変動するため、作業前後で都度Console確認を行う。
 
 ### 次に行うこと
-- 次のタスクは **T-003(Scene名定数の定義)**。依存タスクT-002は完了済みのため着手可能。
-- **T-004(ステータス計算ロジック)** もT-002のみに依存するためT-003と並行して着手可能だが、現時点では未着手(着手はユーザー指示を待つ)。
-- 本PROJECT.mdの更新分をコミットする(asmdef本体はcommit `a823f77`で反映済み。人間の判断・実行を待つ、本セッションでは未実施)。
-- `feature/project-foundation`ブランチを`origin`へpushする(人間の判断・実行を待つ)。
+- `feature/project-foundation`ブランチを`origin`へpushする(人間の判断・実行を待つ、現時点では未push)。
 - push後、CI(`.github/workflows/repository-check.yml`)が正しく実行され成功することを確認する。
+- Pull Requestを作成する。
+- レビューを経て`main`へマージする。
+- マージ後、次のタスクは **T-003(Scene名定数の定義)**。依存タスクT-002は完了済みのため着手可能。
+- **T-004(ステータス計算ロジック)** もT-002のみに依存するためT-003と並行して着手可能だが、現時点では未着手(着手はユーザー指示を待つ)。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
 - `Assets/Scenes/SampleScene.unity` は、正式なBootstrap/Title/Field/Battle Sceneが作成・検証されるまで保持する(削除しない)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
