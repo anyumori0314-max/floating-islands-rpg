@@ -1,0 +1,78 @@
+# ==============================
+# Default: normalize line endings for text files
+# ==============================
+* text=auto eol=lf
+
+# ==============================
+# Source / config text formats
+# ==============================
+*.cs text diff=csharp
+*.json text
+*.xml text
+*.yml text
+*.yaml text
+*.md text
+*.txt text
+*.shader text
+*.compute text
+*.cginc text
+*.hlsl text
+*.glsl text
+
+# ==============================
+# Unity text-serialized assets (YAML-based, treat as text)
+# ==============================
+*.unity text merge=unityyamlmerge eol=lf
+*.prefab text merge=unityyamlmerge eol=lf
+*.asset text merge=unityyamlmerge eol=lf
+*.meta text merge=unityyamlmerge eol=lf
+*.mat text merge=unityyamlmerge eol=lf
+*.anim text merge=unityyamlmerge eol=lf
+*.controller text merge=unityyamlmerge eol=lf
+*.physicsMaterial2D text merge=unityyamlmerge eol=lf
+*.physicMaterial text merge=unityyamlmerge eol=lf
+*.playable text merge=unityyamlmerge eol=lf
+*.mask text merge=unityyamlmerge eol=lf
+*.inputactions text merge=unityyamlmerge eol=lf
+
+# ==============================
+# Binary assets (do not diff / do not normalize line endings)
+# 将来Git LFSを導入する場合はここに `filter=lfs diff=lfs merge=lfs -text` を追記する想定。
+# 今回はLFSを有効化しないため通常のbinary指定のみ。
+# ==============================
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.tga binary
+*.tif binary
+*.tiff binary
+*.psd binary
+*.exr binary
+*.hdr binary
+
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.aiff binary
+
+*.fbx binary
+*.obj binary
+*.blend binary
+*.3ds binary
+*.max binary
+
+*.mp4 binary
+*.mov binary
+*.webm binary
+
+*.dll binary
+*.exe binary
+*.pdb binary
+*.so binary
+*.dylib binary
+
+*.ttf binary
+*.otf binary
+
+*.unitypackage binary

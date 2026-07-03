@@ -1,0 +1,74 @@
+name: Repository Check
+
+# 現段階ではUnityライセンスを要するビルドやTest Runnerは実行しない。
+# リポジトリ構成の健全性チェックのみを行う。
+# 将来的に EditMode Test / PlayMode Test / Unity Build を追加予定
+# (README.md「今後追加予定のCI項目」/ PROJECT.md「現状」参照)。
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  repository-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          set -e
+          missing=0
+          for f in \
+            "PROJECT.md" \
+            "README.md" \
+            "LICENSE" \
+            "Packages/manifest.json" \
+            "ProjectSettings/ProjectVersion.txt"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Required file is missing: $f"
+              missing=1
+            else
+              echo "OK: $f exists"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::One or more required files are missing. See log above."
+            exit 1
+          fi
+
+      - name: Check generated/cache directories are not tracked by Git
+        run: |
+          set -e
+          forbidden=0
+          for dir in "Library" "Temp" "Logs" "UserSettings"; do
+            tracked=$(git ls-files | grep -E "^${dir}/" || true)
+            if [ -n "$tracked" ]; then
+              echo "::error::Git-tracked files found under '${dir}/', which must be gitignored:"
+              echo "$tracked"
+              forbidden=1
+            else
+              echo "OK: no tracked files under ${dir}/"
+            fi
+          done
+          if [ "$forbidden" -ne 0 ]; then
+            echo "::error::Generated/cache directories must not be committed. Check .gitignore."
+            exit 1
+          fi
+
+      - name: Show Unity version from ProjectVersion.txt
+        run: |
+          set -e
+          echo "----- ProjectSettings/ProjectVersion.txt -----"
+          cat "ProjectSettings/ProjectVersion.txt"
+          echo "-----------------------------------------------"
+
+      - name: Validate Packages/manifest.json is valid JSON
+        run: |
+          set -e
+          if ! python3 -m json.tool "Packages/manifest.json" > /dev/null; then
+            echo "::error::Packages/manifest.json is not valid JSON."
+            exit 1
+          fi
+          echo "OK: Packages/manifest.json is valid JSON"
