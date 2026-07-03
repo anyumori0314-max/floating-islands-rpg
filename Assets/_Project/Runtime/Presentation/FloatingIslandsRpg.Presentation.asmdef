@@ -1,0 +1,16 @@
+{
+    "name": "FloatingIslandsRpg.Presentation",
+    "rootNamespace": "FloatingIslandsRpg.Presentation",
+    "references": [
+        "FloatingIslandsRpg.Domain",
+        "FloatingIslandsRpg.Application"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": []
+}

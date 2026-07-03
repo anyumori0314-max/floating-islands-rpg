@@ -174,11 +174,22 @@ Assets/
 
 各フォルダ配下には現時点でコード・アセットは存在せず、Git管理のため `.gitkeep` を配置している(空フォルダ運用の間の暫定措置。実ファイルが追加され次第 `.gitkeep` は削除してよい)。
 
-### Assembly Definition方針
-- レイヤーごとに asmdef を分割する: `FloatingIslands.Domain`, `FloatingIslands.Application`, `FloatingIslands.Presentation`, `FloatingIslands.Infrastructure`。
-- 依存方向は下記「依存方向」に従い、循環参照を作らない。
-- テスト用に `FloatingIslands.Domain.Tests` (EditMode) 等を別asmdefとして作成し、Test Assembliesフラグを立てる。
-- 現時点でasmdefは1つも存在しない(すべてAssembly-CSharp直下でコンパイルされる状態)。導入はPhase 1のタスクとする。
+### Assembly Definition方針(T-002で作成済み)
+- レイヤーごとに asmdef を分割済み。実際のAssembly名と配置は以下の通り(いずれも `rootNamespace` はAssembly名と同一)。
+
+| Assembly名 | 配置 | 参照するAssembly | 備考 |
+|---|---|---|---|
+| `FloatingIslandsRpg.Domain` | `Assets/_Project/Runtime/Domain/` | なし | `noEngineReferences: true`。UnityEngineおよび他のプロジェクト内Assemblyに依存しない純粋なC# |
+| `FloatingIslandsRpg.Application` | `Assets/_Project/Runtime/Application/` | `FloatingIslandsRpg.Domain` | `noEngineReferences: true`。UnityEngineへ直接依存しない |
+| `FloatingIslandsRpg.Infrastructure` | `Assets/_Project/Runtime/Infrastructure/` | `FloatingIslandsRpg.Domain`, `FloatingIslandsRpg.Application` | Presentationは参照しない。Unity API・保存処理・ScriptableObject実装を担当 |
+| `FloatingIslandsRpg.Presentation` | `Assets/_Project/Runtime/Presentation/` | `FloatingIslandsRpg.Domain`, `FloatingIslandsRpg.Application` | Infrastructureへの直接参照は追加しない(Applicationを経由) |
+| `FloatingIslandsRpg.Editor` | `Assets/_Project/Editor/` | なし | `includePlatforms: ["Editor"]`。現時点で必要なRuntime Assembly参照はないため未追加 |
+| `FloatingIslandsRpg.Tests.EditMode` | `Assets/_Project/Tests/EditMode/` | `FloatingIslandsRpg.Domain`, `FloatingIslandsRpg.Application` | `includePlatforms: ["Editor"]`、`optionalUnityReferences: ["TestAssemblies"]`。テストコードは未作成 |
+| `FloatingIslandsRpg.Tests.PlayMode` | `Assets/_Project/Tests/PlayMode/` | `FloatingIslandsRpg.Domain`, `FloatingIslandsRpg.Application`, `FloatingIslandsRpg.Infrastructure`, `FloatingIslandsRpg.Presentation` | `optionalUnityReferences: ["TestAssemblies"]`。テストコードは未作成 |
+
+- 共通設定: `allowUnsafeCode: false`, `overrideReferences: false`, `autoReferenced: true`。
+- 依存方向は下記「依存方向」通りに実装済み(循環参照なし、Unityコンパイル成功で確認済み)。
+- テスト用asmdefは `FloatingIslandsRpg.Tests.EditMode` / `FloatingIslandsRpg.Tests.PlayMode` として作成済み(`FloatingIslands.Domain.Tests`のような単一レイヤー単位ではなく、EditMode/PlayModeの2アセンブリに統合)。
 
 ### Scene構成
 - 3.仕様のScene一覧に準拠。エリア間(Title/Village/Field/Dungeon/GameClear)はScene遷移(Single方式)で切り替える。
@@ -251,42 +262,48 @@ Domain は他レイヤーに依存しない。
 
 ### フェーズ状況
 - **Phase 0: 完了**。Unity 6 / URPプロジェクト作成、主要パッケージ導入、Unity MCP接続確認まで完了。
-- **Phase 1: 基盤ファイル作成段階(本セッションで実施)**。Git初期化、`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`、最小CI(`.github/workflows/repository-check.yml`)を作成。Gitリポジトリ・CI基盤としての体裁は整ったが、**初回コミット・GitHubへのpushは未実施**。
+- **Phase 1: 完了**。Git初期化、`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`、最小CI(`.github/workflows/repository-check.yml`)を作成し、初回コミット済み。`main`ブランチは`origin/main`(GitHub)へpush済み。
 - **Phase 2: 設計承認済み**。7.要承認事項の全7項目についてユーザーによる方針決定が完了し、承認済み。決定内容は4.設計/5.規約/7.要承認事項へ反映済み。
-- **ゲーム実装: 未着手**。T-001以降のタスクにはまだ着手していない(コード0行)。
+- **T-001: 完了**。`Assets/_Project/`配下の基盤ディレクトリ(17フォルダ)を作成済み(コミット済み)。
+- **T-002: 完了**。レイヤー別Assembly Definition(asmdef)7個を作成済み(現在の作業ブランチ`feature/project-foundation`上でワーキングツリーに存在、**未コミット**)。
+- **ゲーム実装: 未着手**。ゲーム機能・C#クラス(Domain/Application/Infrastructure/Presentationの実装コード)・テストコードはいずれも未実装(コード0行、asmdefの外枠のみ存在)。
 
 ### 完了済み
 - Unity 6 (6000.3.17f1) / URPの新規プロジェクトが作成済み。
 - 主要パッケージ導入済み: URP 17.3.0, Input System 1.19.0, AI Navigation 2.0.12, Timeline 1.8.12, Test Framework 1.6.0, Visual Scripting 1.9.11, MCP For Unity (v10.0.0)。
 - `SampleScene.unity` からMCP接続テスト用GameObject(`MCP_Test_Ground`, `MCP_Connection_Test`)を削除済み(過去セッションで実施。当時はMCP未接続だったためシーンYAMLの直接編集で行った旨を「既知の問題」に記録)。
-- Unity MCPの接続を再確立し、再接続確認を実施済み(読み取り専用)。プロジェクト名 `floating-islands-rpg`、Scene `Assets/Scenes/SampleScene.unity`、Hierarchyルート3件(Main Camera / Directional Light / Global Volume)、Edit Mode、Console Error 0件・Warning 0件を確認。
+- Unity MCPの接続を再確立し、再接続確認を複数回実施済み(読み取り専用)。プロジェクト名 `floating-islands-rpg`、Edit Mode、Console Error 0件を安定して確認。
 - 本PROJECT.mdの初稿を作成。
 - 7.要承認事項の全7項目(Unity MCP運用、戦闘Scene方式、セーブデータ形式、マスターデータ供給方法、SampleSceneの扱い、TutorialInfoの扱い、イベント通知方式)についてユーザーによる方針決定が完了し、承認済みとした。決定内容を4.設計/5.規約/7.要承認事項へ反映済み。
-- Phase 1のリポジトリ基盤を作成済み(本セッション、いずれも未コミット):
+- Phase 1のリポジトリ基盤を作成・コミット済み:
   - `git init -b main` によるGitリポジトリ初期化(mainブランチ)。
-  - Unity向け`.gitignore`(`Library/`, `Temp/`, `Logs/`, `UserSettings/`, ビルド出力, IDE個人設定, OS生成ファイル, 自動生成`.sln`/`.slnx`/`.csproj`, 秘密情報ファイル等を除外。`Assets/`, `Packages/`, `ProjectSettings/`, `PROJECT.md`は対象外=追跡対象)。
-  - `.gitattributes`(改行コード正規化、C#/JSON/YAML/Markdownおよび Unity のテキスト系アセット(`.unity`/`.prefab`/`.asset`/`.mat`等)をtext扱い、画像・音声・モデル等をbinary扱い。将来のGit LFS導入を見据えた構成だが、今回はLFSを有効化していない)。
-  - `README.md`(プロジェクト概要、使用技術、開発環境、Unity Hubからの開き方、実装状況、PROJECT.mdへの参照、開発フロー、ライセンス、注意事項)。
-  - `LICENSE`(MIT License、Copyright 2026、著作権者は暫定で `floating-islands-rpg contributors`。変更可能な旨をREADMEに記載)。
-  - 最小CI `.github/workflows/repository-check.yml`(push/pull_requestで実行。必須ファイル存在確認、Library/Temp/Logs/UserSettingsが非追跡であることの確認、ProjectVersion.txtからのUnityバージョン表示、manifest.jsonのJSON妥当性検証。Unityライセンスを要するビルド・Test Runnerは現段階では実行しない。EditMode/PlayMode Test・Unity Buildの追加はREADME/本節「次に行うこと」に記載の将来予定)。
+  - Unity向け`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`(MIT, Copyright 2026, 著作権者は暫定で `floating-islands-rpg contributors`)、最小CI `.github/workflows/repository-check.yml` を作成。
+  - 初回コミット2件を実施し、`main`を`origin`(GitHub: `floating-islands-rpg`)へpush済み(`origin/main`と同期済み)。
+- **T-001 プロジェクト基盤ディレクトリの作成(完了・コミット済み)**: `Assets/_Project/`配下にRuntime(Domain/Application/Presentation/Infrastructure)、Editor、Tests(EditMode/PlayMode)、Scenes、Prefabs、ScriptableObjects、UI、Art、Audio、Settingsの17フォルダをUnity MCP経由で作成。空フォルダのGit管理のため`.gitkeep`を配置。
+- **T-002 レイヤー別Assembly Definitionの作成(完了・未コミット)**: 7個のasmdefを作成。
+  - `FloatingIslandsRpg.Domain`, `FloatingIslandsRpg.Application`, `FloatingIslandsRpg.Infrastructure`, `FloatingIslandsRpg.Presentation`, `FloatingIslandsRpg.Editor`, `FloatingIslandsRpg.Tests.EditMode`, `FloatingIslandsRpg.Tests.PlayMode`。
+  - Domain / Application は `noEngineReferences: true`(UnityEngine非依存)。
+  - 依存方向(Domain ← Application ← Presentation/Infrastructure、DomainからPresentation/Infrastructureへの依存なし、Presentation⇔Infrastructure間の直接依存なし)と循環参照なしを確認済み(Unityコンパイル成功、および複数回の監査で確認)。
+  - 詳細は4.設計「Assembly Definition方針」参照。
 
 ### 未完了
-- Domain/Application/Presentation/Infrastructureのディレクトリ構成・asmdefが未作成(現状はテンプレート由来の`Assets/Scenes`, `Assets/Settings`, `Assets/TutorialInfo`のみ)。
-- ゲームロジック・UI・Prefab・ScriptableObjectは一切未実装(コード0行)。
-- EditMode/PlayModeテストが1つも存在しない。
-- 初回コミットが未実施(Git管理対象ファイルはワーキングツリーに作成済みだが `git commit` は行っていない)。
-- GitHubリポジトリが未作成・`git remote`未設定・`git push`未実施。
-- CIの実行結果は未確認(pushしていないため`repository-check.yml`は一度も実行されていない)。
+- Domain/Application/Infrastructure/Presentationの実装コード(C#クラス)が1つも存在しない(asmdefの外枠のみ)。
+- ゲームロジック・UI・Prefab・ScriptableObjectは一切未実装。
+- EditMode/PlayModeテストコードが1つも存在しない(Test Assembly自体はT-002で作成済み)。
+- T-002の変更(asmdef 7個 + PROJECT.md更新分)が未コミット(現在の作業ブランチ`feature/project-foundation`のワーキングツリーに存在)。
+- `feature/project-foundation`ブランチが`origin`へ未push。
+- CIの実行結果は未確認(`main`へのpush時点のCI結果は未確認、`feature/project-foundation`はpush自体が未実施のため実行されていない)。
 
 ### 既知の問題
 - (解消済み・記録として保持)過去セッションでUnity MCP用ツールが一時的に利用できず、GameObject削除をシーンYAMLの直接編集で行った回があった。現在はUnity MCP接続を再確認済みであり、5.規約「Unity MCP運用方針」により今後はSceneの直接テキスト編集を禁止し、MCP経由での変更を必須とする。
-- Console上のエラー/警告確認は、本セッションでUnity MCP経由(`read_console`)による読み取り専用確認でError 0件・Warning 0件を確認済み(Editor.logベースの確認ではなくConsole欄そのものを確認)。
+- Unity MCPパッケージ自体に起因すると見られる`[WebSocket] Unexpected receive error`という1件のConsole Warningが、`refresh_unity`実行時などに断続的に発生することがある(ゲーム側のコード・アセットには起因しない)。発生の有無はセッションごとに変動するため、作業前後で都度Console確認を行う。
 
 ### 次に行うこと
-- 人間による最終確認の上、初回コミット(`git commit`)を実行する。
-- GitHubリポジトリを作成し、`git remote`設定・`git push`を行う(いずれも人間の判断・実行が必要な操作であり、本セッションでは実施していない)。
+- 次のタスクは **T-003(Scene名定数の定義)**。依存タスクT-002は完了済みのため着手可能。
+- **T-004(ステータス計算ロジック)** もT-002のみに依存するためT-003と並行して着手可能だが、現時点では未着手(着手はユーザー指示を待つ)。
+- T-002の変更(asmdef 7個、PROJECT.md更新分)をコミットする(人間の判断・実行を待つ、本セッションでは未実施)。
+- `feature/project-foundation`ブランチを`origin`へpushする(人間の判断・実行を待つ)。
 - push後、CI(`.github/workflows/repository-check.yml`)が正しく実行され成功することを確認する。
-- その後、Phase 1完了とみなし、T-001(プロジェクト基盤ディレクトリの作成)へ進む。着手にあたっては5.規約「Unity MCP運用方針」に従い、Unity MCP接続を前提とする。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
 - `Assets/Scenes/SampleScene.unity` は、正式なBootstrap/Title/Field/Battle Sceneが作成・検証されるまで保持する(削除しない)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
@@ -309,13 +326,13 @@ Domain は他レイヤーに依存しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画であり、今回のセッションでは着手していない(PROJECT.md更新のみ)。
+> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)が完了し、次はT-003以降に進める状態。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
 |---------|------|----------|----------|----------|------------|
 | T-001 | プロジェクト基盤ディレクトリの作成(完了) | `Assets/_Project/Runtime/{Domain,Application,Presentation,Infrastructure}`, `Assets/_Project/Editor`, `Assets/_Project/Tests/{EditMode,PlayMode}`, `Assets/_Project/{Scenes,Prefabs,ScriptableObjects,UI,Art,Audio,Settings}` | 上記フォルダがすべて作成され、空でもUnityにエラーなく認識される | Unity Editorでフォルダ構成を目視確認、Consoleにエラーが出ないこと | なし |
-| T-002 | レイヤー別asmdefの作成 | `FloatingIslands.Domain.asmdef` 等4つ+テスト用asmdef | 4レイヤー+テスト用asmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
+| T-002 | レイヤー別asmdefの作成(完了) | `FloatingIslandsRpg.Domain.asmdef`, `FloatingIslandsRpg.Application.asmdef`, `FloatingIslandsRpg.Infrastructure.asmdef`, `FloatingIslandsRpg.Presentation.asmdef`, `FloatingIslandsRpg.Editor.asmdef`, `FloatingIslandsRpg.Tests.EditMode.asmdef`, `FloatingIslandsRpg.Tests.PlayMode.asmdef` | 7個のasmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
 | T-003 | Scene名定数の定義 | `Domain`または`Infrastructure`層にSceneID/Scene名の定数(enum等) | マジックストリングでのSceneManager呼び出しを避けられる定義が用意されている | コードレビューで直書き文字列がないことを確認 | T-002 |
 | T-004 | ステータス計算ロジック(Domain) | HP/MP/攻撃力等の基礎ステータスとレベルアップ時の成長計算 | レベル1〜想定最大レベルまでのステータスが決定的に計算できる | EditModeテストで代表レベルの期待値と一致することを確認 | T-002 |
 | T-005 | 戦闘計算ロジック(Domain) | ダメージ計算、命中/回避、行動順決定 | 攻撃側/防御側のステータスからダメージ量・行動順が一意に決定できる | EditModeテストで既知の入力に対する出力を検証 | T-004 |
