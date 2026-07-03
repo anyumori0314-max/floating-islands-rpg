@@ -145,25 +145,34 @@ Unity向けの責務分離として、MVCという名称には合わせず以下
 - **Infrastructure**: Unity依存の実処理(ファイル保存、ScriptableObject、Addressables候補)。
 - **Tests**: EditMode(主にDomain/Application)、PlayMode(Presentationを含む結合的な検証)。
 
-### ディレクトリ構成(想定・未作成)
+### ディレクトリ構成(T-001で作成済み)
 ```
 Assets/
   _Project/
-    Scripts/
+    Runtime/
       Domain/
       Application/
       Presentation/
       Infrastructure/
-    ScriptableObjects/
-    Prefabs/
-    Scenes/
+    Editor/              (Editor拡張・Editor専用スクリプト用)
     Tests/
       EditMode/
       PlayMode/
-  Settings/        (既存: URP設定)
+    Scenes/              (将来: 正式なTitle/Village/Field/Dungeon/Battle/GameClear Sceneを配置)
+    Prefabs/
+    ScriptableObjects/
+    UI/                  (UI関連のアセット・Prefab等)
+    Art/                 (モデル・テクスチャ・マテリアル等の非コードアセット)
+    Audio/               (BGM・SE等の音声アセット)
+    Settings/            (_Project固有の設定アセット。既存の Assets/Settings とは別。責務は下記注記参照)
+  Settings/        (既存: URP設定。Unityテンプレートが生成したレンダーパイプライン設定資産。_Project/Settings とは別物)
   Scenes/          (既存: SampleScene。将来的に _Project/Scenes へ整理するか要検討)
 ```
 `Assets/_Project/` 配下に新規実装をまとめ、テンプレート由来の `Assets/TutorialInfo` 等とは明確に分離する。
+
+`Scripts/` ではなく `Runtime/` を採用し、Editor専用コードは `Editor/` に分離する(Unity Editorの慣例的なasmdef分割に合わせる)。`_Project/Settings/` は将来のゲーム固有設定(バランス調整用ScriptableObject等)を想定した置き場所であり、既存の `Assets/Settings/`(URPのレンダーパイプライン設定一式、Unityテンプレート由来)とは責務が異なる。
+
+各フォルダ配下には現時点でコード・アセットは存在せず、Git管理のため `.gitkeep` を配置している(空フォルダ運用の間の暫定措置。実ファイルが追加され次第 `.gitkeep` は削除してよい)。
 
 ### Assembly Definition方針
 - レイヤーごとに asmdef を分割する: `FloatingIslands.Domain`, `FloatingIslands.Application`, `FloatingIslands.Presentation`, `FloatingIslands.Infrastructure`。
@@ -305,7 +314,7 @@ Domain は他レイヤーに依存しない。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
 |---------|------|----------|----------|----------|------------|
-| T-001 | プロジェクト基盤ディレクトリの作成 | `Assets/_Project/Scripts/{Domain,Application,Presentation,Infrastructure}`, `Assets/_Project/{ScriptableObjects,Prefabs,Scenes,Tests}` | 上記フォルダがすべて作成され、空でもUnityにエラーなく認識される | Unity Editorでフォルダ構成を目視確認、Consoleにエラーが出ないこと | なし |
+| T-001 | プロジェクト基盤ディレクトリの作成(完了) | `Assets/_Project/Runtime/{Domain,Application,Presentation,Infrastructure}`, `Assets/_Project/Editor`, `Assets/_Project/Tests/{EditMode,PlayMode}`, `Assets/_Project/{Scenes,Prefabs,ScriptableObjects,UI,Art,Audio,Settings}` | 上記フォルダがすべて作成され、空でもUnityにエラーなく認識される | Unity Editorでフォルダ構成を目視確認、Consoleにエラーが出ないこと | なし |
 | T-002 | レイヤー別asmdefの作成 | `FloatingIslands.Domain.asmdef` 等4つ+テスト用asmdef | 4レイヤー+テスト用asmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
 | T-003 | Scene名定数の定義 | `Domain`または`Infrastructure`層にSceneID/Scene名の定数(enum等) | マジックストリングでのSceneManager呼び出しを避けられる定義が用意されている | コードレビューで直書き文字列がないことを確認 | T-002 |
 | T-004 | ステータス計算ロジック(Domain) | HP/MP/攻撃力等の基礎ステータスとレベルアップ時の成長計算 | レベル1〜想定最大レベルまでのステータスが決定的に計算できる | EditModeテストで代表レベルの期待値と一致することを確認 | T-002 |
