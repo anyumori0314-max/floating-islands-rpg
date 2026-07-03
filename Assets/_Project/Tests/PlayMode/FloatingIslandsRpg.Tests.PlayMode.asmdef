@@ -1,0 +1,23 @@
+{
+    "name": "FloatingIslandsRpg.Tests.PlayMode",
+    "rootNamespace": "FloatingIslandsRpg.Tests.PlayMode",
+    "references": [
+        "FloatingIslandsRpg.Domain",
+        "FloatingIslandsRpg.Application",
+        "FloatingIslandsRpg.Infrastructure",
+        "FloatingIslandsRpg.Presentation"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

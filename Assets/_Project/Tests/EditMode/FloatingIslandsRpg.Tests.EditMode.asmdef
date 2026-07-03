@@ -1,0 +1,23 @@
+{
+    "name": "FloatingIslandsRpg.Tests.EditMode",
+    "rootNamespace": "FloatingIslandsRpg.Tests.EditMode",
+    "references": [
+        "FloatingIslandsRpg.Domain",
+        "FloatingIslandsRpg.Application"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}
