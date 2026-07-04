@@ -1,7 +1,7 @@
 # PROJECT.md
 
 > floating-islands-rpg の設計方針・スコープ・実装タスクを一元管理するドキュメント。
-> 最終更新: 2026-07-04 (T-004 Codex第三者レビューMinor指摘対応(MinLevel≠1回帰テスト追加)を反映)
+> 最終更新: 2026-07-04 (Codex第三者レビュー: T-005 ResolveHit境界修正完了・全112件Passed、T-003/T-004のmainマージ済み表記統一を反映)
 
 ---
 
@@ -218,6 +218,32 @@ Assets/
 - **レベル上限の方針**: ゲーム全体の最大レベルをDomain層にハードコードせず、`StatGrowthProfile.MaxLevel`としてプロファイルごとに指定する。将来キャラクター・職業ごとに異なるレベル上限を持たせられるようにするための設計判断。
 - **今回のスコープ外**: `Character`/`Player`/`Enemy`等の具体的なキャラクタークラス、主人公固有の初期値、経験値テーブル、ダメージ計算・HP回復・装備補正・バフ処理は本Taskでは実装しない(T-005以降で対応予定)。
 
+### 戦闘計算ロジック(T-005で作成済み)
+- `Assets/_Project/Runtime/Domain/Combat/CombatCalculator.cs`(namespace: `FloatingIslandsRpg.Domain.Combat`): ダメージ計算・命中/回避判定・行動順決定を担う静的クラス。T-004の`CharacterStats`を入力として利用する(責務の重複実装はしていない)。
+  - `CalculateDamage(attacker, defender)`: `damage = max(1, attacker.Attack - defender.Defense)`。最低ダメージは1で固定(`private const int MinimumDamage = 1`)。
+  - `CalculateHitChance(attacker, defender)`: 基準命中率90%に、攻撃側と防御側のAgility差1ptあたり±1%を加減し、5%〜95%にクランプして返す(純粋関数、ステータスのみから決定)。
+  - `ResolveHit(hitChance, randomRoll)`: `randomRoll < hitChance`を返すのみ。乱数はDomain内部で生成せず、呼び出し側(将来のApplication層)から渡された値を使う(5.規約のマジックストリング/乱数方針、および本Taskの「直接System.Randomを内部生成しない」方針に対応)。`hitChance`の有効範囲は`[0.0, 1.0]`(0%・100%を許容)、`randomRoll`の有効範囲は`[0.0, 1.0)`(1.0自体は無効)。`double.IsNaN`/`double.IsInfinity`を明示的にチェックし、NaN・±Infinityはいずれも`ArgumentOutOfRangeException`で拒否する(Codex第三者レビューMajor指摘対応、後述)。
+  - `CompareTurnOrder(first, second)`: Agility降順比較(`second.Agility.CompareTo(first.Agility)`)。同値の場合は`0`を返し、タイブレークのポリシーはDomain層では決定せず呼び出し側に委ねる。
+  - 入力検証: 各メソッドで`null`は`ArgumentNullException`、`ResolveHit`の`hitChance`/`randomRoll`が`[0,1]`範囲外なら`ArgumentOutOfRangeException`。
+  - **オーバーフローについて**: `CharacterStats`のAttack/Defense/Agilityはいずれも0以上という不変条件があるため、減算・比較のみで構成される本ロジックは数学的にオーバーフローが発生し得ない(`checked`ブロックは防御的に設置済み)。そのためテストは実際にオーバーフローを発生させる代わりに、`int.MaxValue`等の極端な値でも正しく動作することを確認する形とした。
+- **Codex第三者レビュー指摘への対応(本セッション)**:
+  - Major: `ResolveHit`が`hitChance`/`randomRoll`の境界値・非数値を正しく検証できていなかった(`ResolveHit(1.0, 1.0)`が`false`になる、`double.NaN`が範囲検証を素通りする)。修正内容: `randomRoll`の上限判定を`> 1.0`から`>= 1.0`へ変更し有効範囲を`[0.0, 1.0)`に統一。`hitChance`/`randomRoll`双方に`double.IsNaN`・`double.IsInfinity`の明示チェックを追加(NaN・±Infinityはこれまでも一部は範囲比較で偶然弾かれていたが、意図が不明瞭だったため明示化)。`CalculateDamage`・`CalculateHitChance`・`CompareTurnOrder`は変更していない。
+  - 本Taskのスコープ外: T-006・T-007の本番コードは変更していない。
+- **今回のスコープ外**: 戦闘UI、戦闘Scene、MonoBehaviour、敵AI、アニメーション、エフェクト、属性相性、バフ・デバフ、装備処理、クリティカル、経験値、報酬、Scene遷移は実装しない(T-008以降で対応予定)。
+
+### 経験値・レベルアップ計算(T-006で作成済み)
+- `Assets/_Project/Runtime/Domain/Progression/ExperienceTable.cs`(namespace: `FloatingIslandsRpg.Domain.Progression`): レベルごとの累積必要経験値を外部配列(`IReadOnlyList<int>`)から受け取る不変クラス。防御的コピーを保持するため生成後に外部配列を変更しても影響を受けない。レベル1の必要経験値は必ず0、以降は単調増加でなければならず、違反時は`ArgumentException`。`MaxLevel`(配列長)と`GetRequiredExperience(level)`を公開し、範囲外`level`は`ArgumentOutOfRangeException`。
+- `Assets/_Project/Runtime/Domain/Progression/LevelUpCalculator.cs`: `CalculateLevel(table, totalExperience)`。累積経験値から、閾値を超えている最大のレベルを返す純粋関数。`table`が`null`なら`ArgumentNullException`、`totalExperience`が負なら`ArgumentOutOfRangeException`。`MaxLevel`到達後は経験値がいくら増えても`MaxLevel`のまま(キャップ)。
+- 経験値テーブルはキャラクター固有値としてコードへハードコードせず、外部から渡す配列として表現する(5.規約「マジックナンバー禁止」に対応)。
+- **T-005との関係**: PROJECT.md上T-006はT-005ではなくT-004にのみ依存するため、`CombatCalculator`のAPIは利用していない(責務の重複・不要な結合を避けた)。
+- **今回のスコープ外**: 経験値の実際の付与処理(戦闘勝利時の分配等、Application層)、ステータス再計算との連携(T-004の`CharacterStatsCalculator`呼び出し)は本Taskでは実装しない。
+
+### クエスト状態管理(T-007で作成済み)
+- `Assets/_Project/Runtime/Domain/Quests/QuestState.cs`(namespace: `FloatingIslandsRpg.Domain.Quests`): `NotStarted`/`InProgress`/`Completed`の3値enum(3.仕様「クエスト進行」の「未受注/進行中/完了」に対応)。
+- `Assets/_Project/Runtime/Domain/Quests/QuestProgress.cs`: 単一クエストの状態を保持するクラス。生成時は常に`NotStarted`。`Start()`は`NotStarted`からのみ`InProgress`へ、`Complete()`は`InProgress`からのみ`Completed`へ遷移可能。それ以外の状態からの呼び出しは`InvalidOperationException`で拒否し、状態を黙って補正しない。
+- メインクエスト1本・サブクエスト2本の「独立した管理」は、`QuestProgress`を3つの独立したインスタンスとして扱うことで実現する(各クエストの識別・集約はApplication層の責務としてDomainには`QuestId`やQuestManager相当のクラスを追加していない)。
+- **今回のスコープ外**: メイン/サブクエストそれぞれの具体的な受注条件・進行条件・完了条件の実装、クエストの識別子・集約管理(Application層)は本Taskでは実装しない。
+
 ### Prefab方針
 - プレイヤー、NPC、敵、UIパネル等は原則Prefab化し、Sceneへの直置きを避ける。
 - Prefab Variantsを用いて敵3種+ボスなど差分の大きいバリエーションを管理する。
@@ -287,9 +313,12 @@ Presentation と Infrastructure は相互に参照しない。
 - **Phase 2: 設計承認済み**。7.要承認事項の全7項目についてユーザーによる方針決定が完了し、承認済み。決定内容は4.設計/5.規約/7.要承認事項へ反映済み。
 - **T-001: 完了・`main`にマージ済み**。`Assets/_Project/`配下の基盤ディレクトリ(17フォルダ)を作成済み。
 - **T-002: 完了・`main`にマージ済み**。レイヤー別Assembly Definition(asmdef)7個を作成済み。
-- **T-003: 完了(`feature/scene-identifiers`ブランチ、Codex第三者レビュー指摘対応完了、未コミット)**。Scene識別子`SceneId`とScene名解決`SceneNameCatalog`をApplication層に作成。PROJECT.md「3.仕様 Scene一覧」の正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)へ統一済み。EditModeテスト11件すべてPassed(Unity Editor Test Runnerで実行確認済み)。
-- **T-004: 完了(`feature/character-stats`ブランチ、Codex第三者レビューMinor指摘対応完了、未コミット)**。キャラクターステータス計算ロジック(`CharacterStats`, `StatGrowthProfile`, `CharacterStatsCalculator`)をDomain層に作成。EditModeテスト33件すべてPassed(Unity Editor Test Runnerで実行確認済み)。
-- **ゲーム実装**: Scene識別子(T-003)、キャラクターステータス計算(T-004)以外のゲーム機能・C#クラス(Infrastructure/Presentationの実装コード、およびDomainのその他のロジック)は未実装。
+- **T-003: 完了・`main`にマージ済み**(Codex第三者レビュー指摘対応完了、PR #2)。Scene識別子`SceneId`とScene名解決`SceneNameCatalog`をApplication層に作成。PROJECT.md「3.仕様 Scene一覧」の正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)へ統一済み。EditModeテスト11件すべてPassed。
+- **T-004: 完了・`main`にマージ済み**(Codex第三者レビューMinor指摘対応完了、PR #3)。キャラクターステータス計算ロジック(`CharacterStats`, `StatGrowthProfile`, `CharacterStatsCalculator`)をDomain層に作成。EditModeテスト33件すべてPassed。
+- **T-005: 完了(`feature/domain-combat-core`ブランチ、Codex第三者レビューMajor指摘対応完了、mainへ未マージ)**。戦闘計算ロジック(`CombatCalculator`: ダメージ計算・命中/回避・行動順決定)をDomain層に作成。EditModeテスト40件すべてPassed(Unity Editor Test Runnerで実行確認済み)。
+- **T-006: 完了(`feature/domain-combat-core`ブランチ、Codex第三者レビュー合格済み、mainへ未マージ)**。経験値・レベルアップ計算ロジック(`ExperienceTable`, `LevelUpCalculator`)をDomain層に作成。EditModeテスト20件すべてPassed。
+- **T-007: 完了(`feature/domain-combat-core`ブランチ、Codex第三者レビュー合格済み、mainへ未マージ)**。クエスト状態管理(`QuestState`, `QuestProgress`)をDomain層に作成。EditModeテスト8件すべてPassed。
+- **ゲーム実装**: Scene識別子(T-003)、キャラクターステータス計算(T-004)、戦闘計算(T-005)、経験値・レベルアップ計算(T-006)、クエスト状態管理(T-007)以外のゲーム機能・C#クラス(Application/Infrastructure/Presentationの実装コード)は未実装。
 
 ### 完了済み
 - Unity 6 (6000.3.17f1) / URPの新規プロジェクトが作成済み。
@@ -305,20 +334,24 @@ Presentation と Infrastructure は相互に参照しない。
   - **T-002 レイヤー別Assembly Definitionの作成**: `FloatingIslandsRpg.Domain`, `.Application`, `.Infrastructure`, `.Presentation`, `.Editor`, `.Tests.EditMode`, `.Tests.PlayMode` の7個を作成。Domain / Application は `noEngineReferences: true`(UnityEngine非依存)。依存方向と循環参照なしを確認済み。詳細は4.設計「Assembly Definition方針」参照。
   - PROJECT.mdの文書整合修正(T-001/T-002完了の反映、依存方向ブロックの修正等)。
   - Pull Request #1(`feature/project-foundation` → `main`)をマージ(マージコミット`913b90e`)。
-- **T-003 Scene識別子・Scene名定義の作成(完了)**: `SceneId` (enum) と `SceneNameCatalog` (静的クラス) をApplication層に作成。EditModeテスト`SceneNameCatalogTests`を作成。詳細は4.設計「Scene識別子」参照。**現時点では未コミット**(`feature/scene-identifiers`ブランチのワーキングツリーに存在)。
+- **T-003 Scene識別子・Scene名定義の作成(完了・`main`にマージ済み)**: `SceneId` (enum) と `SceneNameCatalog` (静的クラス) をApplication層に作成。EditModeテスト`SceneNameCatalogTests`を作成。詳細は4.設計「Scene識別子」参照。
 - **T-003 Codex第三者レビュー指摘対応(完了、本セッション)**: Major指摘(`SceneId`/`SceneNameCatalog`がPROJECT.md正式Scene一覧と不一致。`Sample`/`Bootstrap`を含み`Village`/`Dungeon`を欠いていた)を解消し、`Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`の6件へ統一。Minor指摘(Scene名検証が`string.IsNullOrEmpty`で空白文字列を検出できない)を`string.IsNullOrWhiteSpace`へ修正。テストはScene名個別対応6件(Title/Village/Field/Dungeon/Battle/GameClear)とenum/カタログ過不足検証2件の計8件を追加し、`SceneId.Sample`専用テスト1件を削除、既存の空白検証テストを`IsNullOrWhiteSpace`化。Unity Editor Test Runnerで全11件がPassed(failed 0, skipped 0)であることをユーザーが実行・確認済み。詳細は4.設計「Scene識別子」参照。
-- **T-004 キャラクターステータス計算ロジックの作成(完了)**: `CharacterStats`(不変の値オブジェクト)、`StatGrowthProfile`(基礎値・成長値・レベル範囲プロファイル)、`CharacterStatsCalculator`(静的計算関数)をDomain層(`Assets/_Project/Runtime/Domain/Characters/Stats/`)に作成。採用ステータスは`MaxHp`/`MaxMp`/`Attack`/`Defense`/`Agility`/`Magic`の6種+`Level`。成長計算式は`stat = baseValue + perLevelGrowth * (level - profile.MinLevel)`、レベル上限は`StatGrowthProfile.MaxLevel`としてプロファイルごとに指定可能。EditModeテスト(`CharacterStatsTests`8件、`StatGrowthProfileTests`14件、`CharacterStatsCalculatorTests`11件、計33件)を作成し、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件をユーザーが実行・確認済み。詳細は4.設計「キャラクターステータス計算」参照。**現時点では未コミット**(`feature/character-stats`ブランチのワーキングツリーに存在)。
+- **T-004 キャラクターステータス計算ロジックの作成(完了・`main`にマージ済み)**: `CharacterStats`(不変の値オブジェクト)、`StatGrowthProfile`(基礎値・成長値・レベル範囲プロファイル)、`CharacterStatsCalculator`(静的計算関数)をDomain層(`Assets/_Project/Runtime/Domain/Characters/Stats/`)に作成。採用ステータスは`MaxHp`/`MaxMp`/`Attack`/`Defense`/`Agility`/`Magic`の6種+`Level`。成長計算式は`stat = baseValue + perLevelGrowth * (level - profile.MinLevel)`、レベル上限は`StatGrowthProfile.MaxLevel`としてプロファイルごとに指定可能。EditModeテスト(`CharacterStatsTests`8件、`StatGrowthProfileTests`14件、`CharacterStatsCalculatorTests`11件、計33件)を作成し、全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件を確認済み。詳細は4.設計「キャラクターステータス計算」参照。
 - **T-004 Codex第三者レビュー指摘対応(完了、本セッション)**: Minor指摘(`CharacterStatsCalculator`の成長計算式`growthSteps = level - profile.MinLevel`自体は正しいが、既存テストがすべて`MinLevel = 1`のケースのみを検証しており、`MinLevel`が1以外の場合の回帰テストが不足していた)を解消するため、`CharacterStatsCalculatorTests`に`Calculate_WhenMinLevelIsNotOne_AtMinLevelReturnsBaseValues`(MinLevel=5, MaxLevel=10, level=5でgrowthSteps=0・全ステータスが基礎値のまま返ることを検証)と`Calculate_WhenMinLevelIsNotOne_UsesMinLevelAsGrowthOrigin`(MinLevel=5, MaxLevel=10, level=7でgrowthSteps=2・全6ステータスが`baseValue + perLevelGrowth * 2`の期待値と一致することを検証)の2件を追加した。`CharacterStats.cs`/`StatGrowthProfile.cs`/`CharacterStatsCalculator.cs`の本番コードは変更していない。`CharacterStatsCalculatorTests`は9件→11件、T-004関連テスト全体は31件→33件となり、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件をユーザーが実行・確認済み。
+- **T-005 戦闘計算ロジックの作成(完了、`feature/domain-combat-core`ブランチ、mainへ未マージ)**: `CombatCalculator`(静的クラス)をDomain層(`Assets/_Project/Runtime/Domain/Combat/`)に作成。ダメージ計算(`max(1, Attack-Defense)`)、命中/回避判定(Agility差に基づく命中率算出+外部注入の乱数値との比較)、行動順決定(Agility降順比較)を実装。T-004の`CharacterStats`を利用し、責務の重複実装はしていない。詳細は4.設計「戦闘計算ロジック」参照。
+- **T-005 Codex第三者レビュー指摘対応(完了、本セッション)**: Major指摘(`ResolveHit(1.0, 1.0)`がfalseになる、`double.NaN`が範囲検証を通過する、命中率0%/100%とrandomRollの有効範囲がAPIとして曖昧)を解消するため、`CombatCalculator.ResolveHit`のhitChance/randomRollの範囲検証に`double.IsNaN`/`double.IsInfinity`の明示チェックを追加し、`randomRoll`の上限を`> 1.0`(1.0を許可)から`>= 1.0`(1.0を拒否、有効範囲を`[0.0, 1.0)`に統一)へ修正した。`CalculateDamage`/`CalculateHitChance`/`CompareTurnOrder`、T-006/T-007の本番コードは変更していない。`CombatCalculatorTests`のResolveHit関連テストを整理・拡充(8件→20件、`CombatCalculatorTests`全体で28件→40件)。Unity Editor Test Runnerで全EditModeテスト112件がPassed(failed 0, skipped 0)、Console Error 0件・Warning 0件をユーザーが実行・確認済み。
+- **T-006 経験値・レベルアップ計算の作成(完了、`feature/domain-combat-core`ブランチ、Codex第三者レビュー合格済み、mainへ未マージ)**: `ExperienceTable`(不変の経験値テーブル)、`LevelUpCalculator`(静的計算関数)をDomain層(`Assets/_Project/Runtime/Domain/Progression/`)に作成。レベルごとの累積必要経験値を外部配列として受け取り、`CalculateLevel(table, totalExperience)`で到達レベルを一意に決定する。PROJECT.md上T-005ではなくT-004にのみ依存するため、`CombatCalculator`との結合は行っていない。EditModeテスト(`ExperienceTableTests`10件、`LevelUpCalculatorTests`10件、計20件)を作成し、全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件を確認済み。詳細は4.設計「経験値・レベルアップ計算」参照。
+- **T-007 クエスト状態管理の作成(完了、`feature/domain-combat-core`ブランチ、Codex第三者レビュー合格済み、mainへ未マージ)**: `QuestState`(enum)、`QuestProgress`(状態遷移クラス)をDomain層(`Assets/_Project/Runtime/Domain/Quests/`)に作成。`NotStarted→InProgress→Completed`の一方向遷移のみを許可し、不正な遷移は`InvalidOperationException`で拒否する。メイン1本・サブ2本は独立した`QuestProgress`インスタンスとして表現する。EditModeテスト`QuestProgressTests`8件を作成し、全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件を確認済み。詳細は4.設計「クエスト状態管理」参照。
 
 ### 未完了
 - Domain/Infrastructure/Presentationの実装コード(C#クラス)が1つも存在しない(SceneId/SceneNameCatalog以外はasmdefの外枠のみ)。
 - ゲームロジック・UI・Prefab・ScriptableObjectは一切未実装。
 - PlayModeテストコードが1つも存在しない(Test Assembly自体はT-002で作成済み)。
-- T-003の変更(`SceneId.cs`, `SceneNameCatalog.cs`, `SceneNameCatalogTests.cs`)が未コミット(現在の作業ブランチ`feature/scene-identifiers`のワーキングツリーに存在)。
-- `feature/scene-identifiers`ブランチが`origin`へ未push。
 - CIの実行結果は本セッションでは未確認。
-- T-004の変更(`CharacterStats.cs`, `StatGrowthProfile.cs`, `CharacterStatsCalculator.cs`, および対応するEditModeテスト3ファイル)が未コミット(現在の作業ブランチ`feature/character-stats`のワーキングツリーに存在)。
-- `feature/character-stats`ブランチが`origin`へ未push。
+- T-005〜T-007は`feature/domain-combat-core`ブランチにコミット済みだが、`main`へは未マージ(Pull Request未作成)。
+- T-005の`CombatCalculator.ResolveHit`境界修正(Codex Major指摘対応)がワーキングツリー上に存在し、まだコミットされていない(テスト実行・確認は完了)。
+- `feature/domain-combat-core`ブランチが`origin`へ未push。
+- Application層でのT-005〜T-007の利用(戦闘進行ユースケース、セーブ/ロード連携等)は未実装(T-008以降で対応予定)。
 
 ### 既知の問題
 - (解消済み・記録として保持)過去セッションでUnity MCP用ツールが一時的に利用できず、GameObject削除をシーンYAMLの直接編集で行った回があった。現在はUnity MCP接続を再確認済みであり、5.規約「Unity MCP運用方針」により今後はSceneの直接テキスト編集を禁止し、MCP経由での変更を必須とする。
@@ -326,11 +359,13 @@ Presentation と Infrastructure は相互に参照しない。
 - Unity Test Framework(および同梱のUnity.PerformanceTesting)は、テスト実行時にそれ自体の内部ログとして`Exception`種別1件("Saving results to: ...")と`Warning`種別2件(`IPrebuildSetup`/`IPostBuildCleanup`実行ログ)をConsoleへ出力することがある。テスト対象コードの不具合ではなく、EditModeテストを実行した場合に付随するUnity側の既知の挙動(テスト自体はすべてPassed)。テスト実行前後でConsoleを確認し、実際のテスト結果(passed/failed/skipped)と合わせて判断する。
 
 ### 次に行うこと
-- 本セッションのT-003の変更(`SceneId.cs`, `SceneNameCatalog.cs`, `SceneNameCatalogTests.cs`, PROJECT.md更新分)をコミットする(人間の判断・実行を待つ)。
-- `feature/scene-identifiers`ブランチを`origin`へpushする。
-- push後、CIが正しく実行され成功することを確認する。
-- Pull Requestを作成し、レビューを経て`main`へマージする。
-- T-004(ステータス計算ロジック)が完了したため、次のタスクは **T-005(戦闘計算ロジック)**(T-004に依存)。**T-009(Scene遷移ユースケース)** もT-003完了により引き続き着手可能。
+- T-005の`ResolveHit`境界修正(Codex Major指摘対応)はUnity Editor Test Runnerで全112件Passed(failed 0, skipped 0)を確認済み。修正差分(`CombatCalculator.cs`, `CombatCalculatorTests.cs`, PROJECT.md)をコミットする(人間の判断・実行を待つ)。
+- Codex第三者レビューへ再提出し、Major/Minor指摘の解消を確認する。
+- `feature/domain-combat-core`ブランチを`origin`へpushする。
+- Pull Requestを作成する。
+- CIが正しく実行され成功することを確認する。
+- レビューを経て`main`へマージする。
+- マージ後、次のタスクは **T-008(戦闘進行ユースケース、Application)**(T-005に依存)。**T-009(Scene遷移ユースケース)** もT-003完了により引き続き着手可能。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
 - `Assets/Scenes/SampleScene.unity` は、正式なTitle/Village/Field/Dungeon/Battle/GameClear Sceneが作成・検証されるまで保持する(削除しない)。`Bootstrap`は現在のMVP正式Scene一覧には含めない(必要になった場合はPROJECT.md更新・承認後に別Taskで追加する)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
@@ -353,7 +388,7 @@ Presentation と Infrastructure は相互に参照しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)は`main`にマージ済み。T-003(Scene識別子・Scene名定義)は完了(`feature/scene-identifiers`ブランチ、未コミット)。T-004(ステータス計算ロジック)も完了(`feature/character-stats`ブランチ、未コミット)。次はT-005以降に進める状態。
+> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)・T-003(Scene識別子・Scene名定義)・T-004(ステータス計算ロジック)は`main`にマージ済み。T-005(戦闘計算ロジック)・T-006(経験値・レベルアップ計算)・T-007(クエスト状態管理)は`feature/domain-combat-core`ブランチで完了・Codexレビュー合格済み(mainへ未マージ)。次はT-008以降に進める状態。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
@@ -362,9 +397,9 @@ Presentation と Infrastructure は相互に参照しない。
 | T-002 | レイヤー別asmdefの作成(完了・コミット済み: `a823f77`) | `FloatingIslandsRpg.Domain.asmdef`, `FloatingIslandsRpg.Application.asmdef`, `FloatingIslandsRpg.Infrastructure.asmdef`, `FloatingIslandsRpg.Presentation.asmdef`, `FloatingIslandsRpg.Editor.asmdef`, `FloatingIslandsRpg.Tests.EditMode.asmdef`, `FloatingIslandsRpg.Tests.PlayMode.asmdef` | 7個のasmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
 | T-003 | Scene識別子・Scene名定義の作成(完了、Codex第三者レビュー指摘対応完了) | `Assets/_Project/Runtime/Application/Scenes/SceneId.cs`, `SceneNameCatalog.cs`, `Assets/_Project/Tests/EditMode/Scenes/SceneNameCatalogTests.cs` | マジックストリングでのSceneManager呼び出しを避けられる定義が用意されている。SceneIdはPROJECT.md「3.仕様 Scene一覧」の正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)と一致する | EditModeテスト11件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-002 |
 | T-004 | ステータス計算ロジック(Domain)(完了、Codex第三者レビューMinor指摘対応完了) | `Assets/_Project/Runtime/Domain/Characters/Stats/CharacterStats.cs`, `StatGrowthProfile.cs`, `CharacterStatsCalculator.cs`, `Assets/_Project/Tests/EditMode/Characters/Stats/`配下のEditModeテスト3ファイル | レベル1(MinLevel)〜プロファイルごとのMaxLevelまでのステータスが決定的に計算できる。MinLevelが1以外の場合も回帰テストで検証済み | EditModeテスト33件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-002 |
-| T-005 | 戦闘計算ロジック(Domain) | ダメージ計算、命中/回避、行動順決定 | 攻撃側/防御側のステータスからダメージ量・行動順が一意に決定できる | EditModeテストで既知の入力に対する出力を検証 | T-004 |
-| T-006 | 経験値・レベルアップ計算(Domain) | 経験値テーブル、レベルアップ判定 | 経験値加算により正しいタイミングでレベルアップが発生する | EditModeテストで境界値(閾値ちょうど等)を検証 | T-004 |
-| T-007 | クエスト状態管理(Domain) | クエストの未受注/進行中/完了の状態遷移 | メイン1本・サブ2本分の状態遷移が矛盾なく行える | EditModeテストで状態遷移の網羅的なパターンを検証 | T-002 |
+| T-005 | 戦闘計算ロジック(Domain)(完了、Codex第三者レビューMajor指摘対応完了) | `Assets/_Project/Runtime/Domain/Combat/CombatCalculator.cs`, `Assets/_Project/Tests/EditMode/Combat/CombatCalculatorTests.cs` | 攻撃側/防御側のステータスからダメージ量・行動順が一意に決定できる。`ResolveHit`のhitChance/randomRollは非数値(NaN/Infinity)を拒否し、randomRollの有効範囲は`[0.0, 1.0)`とする | EditModeテスト40件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-004 |
+| T-006 | 経験値・レベルアップ計算(Domain)(完了、Codex第三者レビュー合格済み) | `Assets/_Project/Runtime/Domain/Progression/ExperienceTable.cs`, `LevelUpCalculator.cs`, `Assets/_Project/Tests/EditMode/Progression/`配下のEditModeテスト2ファイル | 経験値加算により正しいタイミングでレベルアップが発生する | EditModeテスト20件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-004 |
+| T-007 | クエスト状態管理(Domain)(完了、Codex第三者レビュー合格済み) | `Assets/_Project/Runtime/Domain/Quests/QuestState.cs`, `QuestProgress.cs`, `Assets/_Project/Tests/EditMode/Quests/QuestProgressTests.cs` | メイン1本・サブ2本分の状態遷移が矛盾なく行える | EditModeテスト8件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-002 |
 | T-008 | 戦闘進行ユースケース(Application) | ターン制戦闘のコマンド受付〜勝敗判定までの進行制御 | コマンド入力から勝利/敗北いずれかの結果が返るまで一連の流れが完結する | EditModeテストでシナリオ(勝利/全滅)を検証 | T-005 |
 | T-009 | Scene遷移ユースケース(Application) | エリア間・戦闘への遷移制御 | 村→フィールド→ダンジョン→戦闘→復帰の遷移がコード上で表現できる | PlayModeテストまたは手動確認でシーン遷移がエラーなく行われる | T-003 |
 | T-010 | セーブ/ロードユースケース(Application) | パーティ・クエスト進行等のシリアライズ/デシリアライズ | セーブしたデータをロードした際に元の状態と一致する | EditModeテストでセーブ→ロードの往復一致を検証 | T-004, T-007 |
