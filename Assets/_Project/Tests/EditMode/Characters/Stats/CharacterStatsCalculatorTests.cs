@@ -79,6 +79,44 @@ namespace FloatingIslandsRpg.Tests.EditMode.Characters.Stats
         }
 
         [Test]
+        public void Calculate_WhenMinLevelIsNotOne_AtMinLevelReturnsBaseValues()
+        {
+            // Arrange
+            var profile = CreateProfile(minLevel: 5, maxLevel: 10);
+
+            // Act
+            var stats = CharacterStatsCalculator.Calculate(profile, 5);
+
+            // Assert (growthSteps = 5 - 5 = 0)
+            Assert.AreEqual(5, stats.Level);
+            Assert.AreEqual(100, stats.MaxHp);
+            Assert.AreEqual(50, stats.MaxMp);
+            Assert.AreEqual(20, stats.Attack);
+            Assert.AreEqual(15, stats.Defense);
+            Assert.AreEqual(10, stats.Agility);
+            Assert.AreEqual(25, stats.Magic);
+        }
+
+        [Test]
+        public void Calculate_WhenMinLevelIsNotOne_UsesMinLevelAsGrowthOrigin()
+        {
+            // Arrange
+            var profile = CreateProfile(minLevel: 5, maxLevel: 10);
+
+            // Act
+            var stats = CharacterStatsCalculator.Calculate(profile, 7);
+
+            // Assert (growthSteps = 7 - 5 = 2)
+            Assert.AreEqual(7, stats.Level);
+            Assert.AreEqual(120, stats.MaxHp);
+            Assert.AreEqual(60, stats.MaxMp);
+            Assert.AreEqual(26, stats.Attack);
+            Assert.AreEqual(19, stats.Defense);
+            Assert.AreEqual(12, stats.Agility);
+            Assert.AreEqual(33, stats.Magic);
+        }
+
+        [Test]
         public void Calculate_BelowMinLevel_ThrowsArgumentOutOfRangeException()
         {
             // Arrange
