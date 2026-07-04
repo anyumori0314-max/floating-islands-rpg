@@ -1,7 +1,7 @@
 # PROJECT.md
 
 > floating-islands-rpg の設計方針・スコープ・実装タスクを一元管理するドキュメント。
-> 最終更新: 2026-07-04 (T-003 Codex第三者レビュー指摘対応(SceneId正式6Scene統一・IsNullOrWhiteSpace化)を反映)
+> 最終更新: 2026-07-04 (T-004 キャラクターステータス計算ロジック完了を反映)
 
 ---
 
@@ -208,6 +208,16 @@ Assets/
   - Minor: Scene名検証テストが`string.IsNullOrEmpty`だと空白のみの文字列を検出できなかったため、`string.IsNullOrWhiteSpace`に変更した。
 - **今回のスコープ外**: 実際のSceneロード処理(`SceneManager`呼び出し)はT-003では実装しない(将来のT-009 Scene遷移ユースケースで実装予定)。
 
+### キャラクターステータス計算(T-004で作成済み)
+- HP/MP/攻撃力等の基礎ステータスとレベルに応じた成長値を、UnityEngine非依存のDomain層(`FloatingIslandsRpg.Domain`アセンブリ、`noEngineReferences: true`)で決定的に計算できるようにするため、`CharacterStats`・`StatGrowthProfile`・`CharacterStatsCalculator`の3型を作成した。
+  - `Assets/_Project/Runtime/Domain/Characters/Stats/CharacterStats.cs`(namespace: `FloatingIslandsRpg.Domain.Characters.Stats`): 計算後のキャラクターステータスを保持する不変クラス。`Level`, `MaxHp`, `MaxMp`, `Attack`, `Defense`, `Agility`, `Magic`をコンストラクタで受け取り、生成後は外部から変更できない。`Level < 1`、`MaxHp < 1`、その他 < 0は`ArgumentOutOfRangeException`で拒否する。値比較のため`IEquatable<CharacterStats>`を実装(過剰実装を避けるため演算子オーバーロードは追加していない)。
+  - `Assets/_Project/Runtime/Domain/Characters/Stats/StatGrowthProfile.cs`: レベル1時点の基礎値(`BaseMaxHp`等6種)、レベルが1上がるごとの成長値(`GrowthMaxHp`等6種)、`MinLevel`、`MaxLevel`を保持する不変クラス。`MinLevel < 1`、`MaxLevel < MinLevel`、`BaseMaxHp < 1`、その他基礎値 < 0、成長値 < 0はすべて`ArgumentOutOfRangeException`で拒否する。キャラクター固有の名称やアセット参照は持たない純粋な数値プロファイル。
+  - `Assets/_Project/Runtime/Domain/Characters/Stats/CharacterStatsCalculator.cs`: `public static CharacterStats Calculate(StatGrowthProfile profile, int level)`。`profile`が`null`なら`ArgumentNullException`、`level`が`profile.MinLevel`〜`profile.MaxLevel`の範囲外なら`ArgumentOutOfRangeException`を送出する。乱数・キャッシュ・Unity APIは使用せず、同じ入力に対して常に同じ結果を返す。
+- **採用した基礎ステータス(6種+Level)**: `MaxHp`, `MaxMp`, `Attack`, `Defense`, `Agility`, `Magic`(+ 識別用の`Level`)。3.仕様の時点ではHP/MP/攻撃力/素早さ等の名称のみが言及され6ステータスの正式名称は未定義だったため、本Taskの指示に基づきこの6種をDomain層の正式なステータス名として採用した(3.仕様の記述自体は変更していない)。
+- **成長計算式**: `growthSteps = level - profile.MinLevel`、`stat = baseValue + perLevelGrowth * growthSteps` を6ステータスそれぞれに適用する。`level == profile.MinLevel`(通常はレベル1)では`growthSteps = 0`となり基礎値がそのまま返る。整数演算はすべて`checked`ブロック内で実行し、オーバーフロー時は黙って丸めず`OverflowException`を送出する。MVPでは浮動小数点を使わず整数成長のみとする。
+- **レベル上限の方針**: ゲーム全体の最大レベルをDomain層にハードコードせず、`StatGrowthProfile.MaxLevel`としてプロファイルごとに指定する。将来キャラクター・職業ごとに異なるレベル上限を持たせられるようにするための設計判断。
+- **今回のスコープ外**: `Character`/`Player`/`Enemy`等の具体的なキャラクタークラス、主人公固有の初期値、経験値テーブル、ダメージ計算・HP回復・装備補正・バフ処理は本Taskでは実装しない(T-005以降で対応予定)。
+
 ### Prefab方針
 - プレイヤー、NPC、敵、UIパネル等は原則Prefab化し、Sceneへの直置きを避ける。
 - Prefab Variantsを用いて敵3種+ボスなど差分の大きいバリエーションを管理する。
@@ -278,7 +288,8 @@ Presentation と Infrastructure は相互に参照しない。
 - **T-001: 完了・`main`にマージ済み**。`Assets/_Project/`配下の基盤ディレクトリ(17フォルダ)を作成済み。
 - **T-002: 完了・`main`にマージ済み**。レイヤー別Assembly Definition(asmdef)7個を作成済み。
 - **T-003: 完了(`feature/scene-identifiers`ブランチ、Codex第三者レビュー指摘対応完了、未コミット)**。Scene識別子`SceneId`とScene名解決`SceneNameCatalog`をApplication層に作成。PROJECT.md「3.仕様 Scene一覧」の正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)へ統一済み。EditModeテスト11件すべてPassed(Unity Editor Test Runnerで実行確認済み)。
-- **ゲーム実装**: Scene識別子(T-003)以外のゲーム機能・C#クラス(Domain/Infrastructure/Presentationの実装コード)は未実装。
+- **T-004: 完了(`feature/character-stats`ブランチ、未コミット)**。キャラクターステータス計算ロジック(`CharacterStats`, `StatGrowthProfile`, `CharacterStatsCalculator`)をDomain層に作成。EditModeテスト31件すべてPassed(Unity Editor Test Runnerで実行確認済み)。
+- **ゲーム実装**: Scene識別子(T-003)、キャラクターステータス計算(T-004)以外のゲーム機能・C#クラス(Infrastructure/Presentationの実装コード、およびDomainのその他のロジック)は未実装。
 
 ### 完了済み
 - Unity 6 (6000.3.17f1) / URPの新規プロジェクトが作成済み。
@@ -296,6 +307,7 @@ Presentation と Infrastructure は相互に参照しない。
   - Pull Request #1(`feature/project-foundation` → `main`)をマージ(マージコミット`913b90e`)。
 - **T-003 Scene識別子・Scene名定義の作成(完了)**: `SceneId` (enum) と `SceneNameCatalog` (静的クラス) をApplication層に作成。EditModeテスト`SceneNameCatalogTests`を作成。詳細は4.設計「Scene識別子」参照。**現時点では未コミット**(`feature/scene-identifiers`ブランチのワーキングツリーに存在)。
 - **T-003 Codex第三者レビュー指摘対応(完了、本セッション)**: Major指摘(`SceneId`/`SceneNameCatalog`がPROJECT.md正式Scene一覧と不一致。`Sample`/`Bootstrap`を含み`Village`/`Dungeon`を欠いていた)を解消し、`Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`の6件へ統一。Minor指摘(Scene名検証が`string.IsNullOrEmpty`で空白文字列を検出できない)を`string.IsNullOrWhiteSpace`へ修正。テストはScene名個別対応6件(Title/Village/Field/Dungeon/Battle/GameClear)とenum/カタログ過不足検証2件の計8件を追加し、`SceneId.Sample`専用テスト1件を削除、既存の空白検証テストを`IsNullOrWhiteSpace`化。Unity Editor Test Runnerで全11件がPassed(failed 0, skipped 0)であることをユーザーが実行・確認済み。詳細は4.設計「Scene識別子」参照。
+- **T-004 キャラクターステータス計算ロジックの作成(完了)**: `CharacterStats`(不変の値オブジェクト)、`StatGrowthProfile`(基礎値・成長値・レベル範囲プロファイル)、`CharacterStatsCalculator`(静的計算関数)をDomain層(`Assets/_Project/Runtime/Domain/Characters/Stats/`)に作成。採用ステータスは`MaxHp`/`MaxMp`/`Attack`/`Defense`/`Agility`/`Magic`の6種+`Level`。成長計算式は`stat = baseValue + perLevelGrowth * (level - profile.MinLevel)`、レベル上限は`StatGrowthProfile.MaxLevel`としてプロファイルごとに指定可能。EditModeテスト(`CharacterStatsTests`8件、`StatGrowthProfileTests`14件、`CharacterStatsCalculatorTests`9件、計31件)を作成し、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件をユーザーが実行・確認済み。詳細は4.設計「キャラクターステータス計算」参照。**現時点では未コミット**(`feature/character-stats`ブランチのワーキングツリーに存在)。
 
 ### 未完了
 - Domain/Infrastructure/Presentationの実装コード(C#クラス)が1つも存在しない(SceneId/SceneNameCatalog以外はasmdefの外枠のみ)。
@@ -304,6 +316,8 @@ Presentation と Infrastructure は相互に参照しない。
 - T-003の変更(`SceneId.cs`, `SceneNameCatalog.cs`, `SceneNameCatalogTests.cs`)が未コミット(現在の作業ブランチ`feature/scene-identifiers`のワーキングツリーに存在)。
 - `feature/scene-identifiers`ブランチが`origin`へ未push。
 - CIの実行結果は本セッションでは未確認。
+- T-004の変更(`CharacterStats.cs`, `StatGrowthProfile.cs`, `CharacterStatsCalculator.cs`, および対応するEditModeテスト3ファイル)が未コミット(現在の作業ブランチ`feature/character-stats`のワーキングツリーに存在)。
+- `feature/character-stats`ブランチが`origin`へ未push。
 
 ### 既知の問題
 - (解消済み・記録として保持)過去セッションでUnity MCP用ツールが一時的に利用できず、GameObject削除をシーンYAMLの直接編集で行った回があった。現在はUnity MCP接続を再確認済みであり、5.規約「Unity MCP運用方針」により今後はSceneの直接テキスト編集を禁止し、MCP経由での変更を必須とする。
@@ -315,7 +329,7 @@ Presentation と Infrastructure は相互に参照しない。
 - `feature/scene-identifiers`ブランチを`origin`へpushする。
 - push後、CIが正しく実行され成功することを確認する。
 - Pull Requestを作成し、レビューを経て`main`へマージする。
-- マージ後、次のタスクは **T-004(ステータス計算ロジック)** または **T-009(Scene遷移ユースケース)**。T-004はT-002のみに依存(着手可能)、T-009はT-003に依存(本セッションの完了により着手可能)。
+- T-004(ステータス計算ロジック)が完了したため、次のタスクは **T-005(戦闘計算ロジック)**(T-004に依存)。**T-009(Scene遷移ユースケース)** もT-003完了により引き続き着手可能。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
 - `Assets/Scenes/SampleScene.unity` は、正式なTitle/Village/Field/Dungeon/Battle/GameClear Sceneが作成・検証されるまで保持する(削除しない)。`Bootstrap`は現在のMVP正式Scene一覧には含めない(必要になった場合はPROJECT.md更新・承認後に別Taskで追加する)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
@@ -338,7 +352,7 @@ Presentation と Infrastructure は相互に参照しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)は`main`にマージ済み。T-003(Scene識別子・Scene名定義)は完了(本セッション、`feature/scene-identifiers`ブランチ、未コミット)。次はT-004以降に進める状態。
+> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)は`main`にマージ済み。T-003(Scene識別子・Scene名定義)は完了(`feature/scene-identifiers`ブランチ、未コミット)。T-004(ステータス計算ロジック)も完了(`feature/character-stats`ブランチ、未コミット)。次はT-005以降に進める状態。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
@@ -346,7 +360,7 @@ Presentation と Infrastructure は相互に参照しない。
 | T-001 | プロジェクト基盤ディレクトリの作成(完了) | `Assets/_Project/Runtime/{Domain,Application,Presentation,Infrastructure}`, `Assets/_Project/Editor`, `Assets/_Project/Tests/{EditMode,PlayMode}`, `Assets/_Project/{Scenes,Prefabs,ScriptableObjects,UI,Art,Audio,Settings}` | 上記フォルダがすべて作成され、空でもUnityにエラーなく認識される | Unity Editorでフォルダ構成を目視確認、Consoleにエラーが出ないこと | なし |
 | T-002 | レイヤー別asmdefの作成(完了・コミット済み: `a823f77`) | `FloatingIslandsRpg.Domain.asmdef`, `FloatingIslandsRpg.Application.asmdef`, `FloatingIslandsRpg.Infrastructure.asmdef`, `FloatingIslandsRpg.Presentation.asmdef`, `FloatingIslandsRpg.Editor.asmdef`, `FloatingIslandsRpg.Tests.EditMode.asmdef`, `FloatingIslandsRpg.Tests.PlayMode.asmdef` | 7個のasmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
 | T-003 | Scene識別子・Scene名定義の作成(完了、Codex第三者レビュー指摘対応完了) | `Assets/_Project/Runtime/Application/Scenes/SceneId.cs`, `SceneNameCatalog.cs`, `Assets/_Project/Tests/EditMode/Scenes/SceneNameCatalogTests.cs` | マジックストリングでのSceneManager呼び出しを避けられる定義が用意されている。SceneIdはPROJECT.md「3.仕様 Scene一覧」の正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)と一致する | EditModeテスト11件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-002 |
-| T-004 | ステータス計算ロジック(Domain) | HP/MP/攻撃力等の基礎ステータスとレベルアップ時の成長計算 | レベル1〜想定最大レベルまでのステータスが決定的に計算できる | EditModeテストで代表レベルの期待値と一致することを確認 | T-002 |
+| T-004 | ステータス計算ロジック(Domain)(完了) | `Assets/_Project/Runtime/Domain/Characters/Stats/CharacterStats.cs`, `StatGrowthProfile.cs`, `CharacterStatsCalculator.cs`, `Assets/_Project/Tests/EditMode/Characters/Stats/`配下のEditModeテスト3ファイル | レベル1(MinLevel)〜プロファイルごとのMaxLevelまでのステータスが決定的に計算できる | EditModeテスト31件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-002 |
 | T-005 | 戦闘計算ロジック(Domain) | ダメージ計算、命中/回避、行動順決定 | 攻撃側/防御側のステータスからダメージ量・行動順が一意に決定できる | EditModeテストで既知の入力に対する出力を検証 | T-004 |
 | T-006 | 経験値・レベルアップ計算(Domain) | 経験値テーブル、レベルアップ判定 | 経験値加算により正しいタイミングでレベルアップが発生する | EditModeテストで境界値(閾値ちょうど等)を検証 | T-004 |
 | T-007 | クエスト状態管理(Domain) | クエストの未受注/進行中/完了の状態遷移 | メイン1本・サブ2本分の状態遷移が矛盾なく行える | EditModeテストで状態遷移の網羅的なパターンを検証 | T-002 |
