@@ -7,13 +7,15 @@ namespace FloatingIslandsRpg.Application.Scenes
     {
         private static readonly Dictionary<SceneId, string> Names = new Dictionary<SceneId, string>
         {
-            { SceneId.Sample, "SampleScene" },
-            { SceneId.Bootstrap, "Bootstrap" },
             { SceneId.Title, "Title" },
+            { SceneId.Village, "Village" },
             { SceneId.Field, "Field" },
+            { SceneId.Dungeon, "Dungeon" },
             { SceneId.Battle, "Battle" },
             { SceneId.GameClear, "GameClear" },
         };
+
+        public static int RegisteredCount => Names.Count;
 
         public static string GetName(SceneId sceneId)
         {

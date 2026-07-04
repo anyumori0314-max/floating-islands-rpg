@@ -2,10 +2,10 @@ namespace FloatingIslandsRpg.Application.Scenes
 {
     public enum SceneId
     {
-        Sample,
-        Bootstrap,
         Title,
+        Village,
         Field,
+        Dungeon,
         Battle,
         GameClear
     }
