@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace FloatingIslandsRpg.Application.Battle
 {
     public sealed class BattleTurnResult
     {
-        private readonly List<BattleActionResult> _actions;
+        private readonly ReadOnlyCollection<BattleActionResult> _actions;
 
         public int TurnNumber { get; }
         public IReadOnlyList<BattleActionResult> Actions => _actions;
@@ -19,7 +20,7 @@ namespace FloatingIslandsRpg.Application.Battle
             }
 
             TurnNumber = turnNumber;
-            _actions = new List<BattleActionResult>(actions);
+            _actions = new List<BattleActionResult>(actions).AsReadOnly();
             Outcome = outcome;
         }
     }
