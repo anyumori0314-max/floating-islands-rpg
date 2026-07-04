@@ -1,7 +1,7 @@
 # PROJECT.md
 
 > floating-islands-rpg の設計方針・スコープ・実装タスクを一元管理するドキュメント。
-> 最終更新: 2026-07-04 (7.要承認事項 全7項目の承認完了を反映)
+> 最終更新: 2026-07-04 (T-003 Codex第三者レビュー指摘対応(SceneId正式6Scene統一・IsNullOrWhiteSpace化)を反映)
 
 ---
 
@@ -198,6 +198,16 @@ Assets/
 - AudioListenerおよびEventSystemは同時に有効な状態が複数存在すること(重複)を禁止する。戦闘Sceneを加算ロードする際は、フィールド/ダンジョン側または戦闘側のいずれか一方のみが有効になるよう明示的に制御する。
 - パーティ・クエスト進行状況等の永続データは、Sceneをまたいで保持するApplication層のセッション状態として管理し、個々のSceneのMonoBehaviourには持たせない。
 
+### Scene識別子(T-003で作成済み、再レビュー対応反映済み)
+- Scene名のマジックストリングを排除するため、`SceneId` (enum) と `SceneNameCatalog` (静的クラス) を導入。いずれも`FloatingIslandsRpg.Application`アセンブリに配置(UnityEngine非依存、`SceneManager`未使用)。
+  - `Assets/_Project/Runtime/Application/Scenes/SceneId.cs`(namespace: `FloatingIslandsRpg.Application.Scenes`): `Title`, `Village`, `Field`, `Dungeon`, `Battle`, `GameClear` を定義。3.仕様「Scene一覧」の正式6Sceneと完全一致させている。
+  - `Assets/_Project/Runtime/Application/Scenes/SceneNameCatalog.cs`: `public static string GetName(SceneId sceneId)` を公開。実際のScene名(文字列)は`private static readonly Dictionary<SceneId, string>`一箇所でのみ管理し、外部へは公開しない。未定義の`SceneId`には`ArgumentOutOfRangeException`を送出する。カタログの登録件数を検証用に`public static int RegisteredCount`として公開(テストでenumとカタログの過不足がないことを確認するため)。
+- **SceneIdとScene名を分離した理由**: Scene遷移のユースケース(Application層)は「どのSceneへ」という意図を型安全な`SceneId`で表現し、実際のビルド設定・ファイル名に紐づく文字列(`"Title"`等)はInfrastructure/Presentation側の実装詳細として`SceneNameCatalog`の内部に閉じ込める。これにより、将来Scene名(ファイル名)が変わってもApplication層の呼び出し側コードを変更せずに済み、マジックストリングの直書きも一元管理下に置ける(5.規約「Scene名や文字列の直接指定を減らす」に対応)。
+- **Codex第三者レビュー指摘への対応(本セッション)**:
+  - Major: `SceneId`/`SceneNameCatalog`に含まれていた`Sample`・`Bootstrap`を削除し、PROJECT.md「3.仕様 Scene一覧」の正式6Scene(`Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`)へ統一した。`SampleScene`はUnityテンプレート由来の暫定Sceneであり正式なゲームScene識別子ではないため、`SceneId`には含めない(実体としてのSceneファイルは7.要承認事項5の方針通り引き続き保持し、削除しない)。`Bootstrap`は現在の承認済みPROJECT.md正式Scene一覧に含まれておらず、必要になった時点でPROJECT.mdを更新・承認した上で別Taskとして追加する。
+  - Minor: Scene名検証テストが`string.IsNullOrEmpty`だと空白のみの文字列を検出できなかったため、`string.IsNullOrWhiteSpace`に変更した。
+- **今回のスコープ外**: 実際のSceneロード処理(`SceneManager`呼び出し)はT-003では実装しない(将来のT-009 Scene遷移ユースケースで実装予定)。
+
 ### Prefab方針
 - プレイヤー、NPC、敵、UIパネル等は原則Prefab化し、Sceneへの直置きを避ける。
 - Prefab Variantsを用いて敵3種+ボスなど差分の大きいバリエーションを管理する。
@@ -263,11 +273,12 @@ Presentation と Infrastructure は相互に参照しない。
 
 ### フェーズ状況
 - **Phase 0: 完了**。Unity 6 / URPプロジェクト作成、主要パッケージ導入、Unity MCP接続確認まで完了。
-- **Phase 1: 完了**。Git初期化、`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`、最小CI(`.github/workflows/repository-check.yml`)を作成し、初回コミット済み。`main`ブランチは`origin/main`(GitHub)へpush済み。
+- **Phase 1: 完了**。Git初期化、`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`、最小CI(`.github/workflows/repository-check.yml`)を作成。`feature/project-foundation`ブランチ(T-001, T-002, 文書整合修正含む)はPull Request #1を経て`main`へマージ・push済み(マージコミット`913b90e`)。
 - **Phase 2: 設計承認済み**。7.要承認事項の全7項目についてユーザーによる方針決定が完了し、承認済み。決定内容は4.設計/5.規約/7.要承認事項へ反映済み。
-- **T-001: 完了**。`Assets/_Project/`配下の基盤ディレクトリ(17フォルダ)を作成済み(コミット済み)。
-- **T-002: 完了・コミット済み**。レイヤー別Assembly Definition(asmdef)7個を作成し、コミット済み(`feature/project-foundation`ブランチ、commit `a823f77` "build: define Unity assembly boundaries")。ブランチ自体は`origin`へ未push。
-- **ゲーム実装: 未着手**。ゲーム機能・C#クラス(Domain/Application/Infrastructure/Presentationの実装コード)・テストコードはいずれも未実装(コード0行、asmdefの外枠のみ存在)。
+- **T-001: 完了・`main`にマージ済み**。`Assets/_Project/`配下の基盤ディレクトリ(17フォルダ)を作成済み。
+- **T-002: 完了・`main`にマージ済み**。レイヤー別Assembly Definition(asmdef)7個を作成済み。
+- **T-003: 完了(`feature/scene-identifiers`ブランチ、Codex第三者レビュー指摘対応完了、未コミット)**。Scene識別子`SceneId`とScene名解決`SceneNameCatalog`をApplication層に作成。PROJECT.md「3.仕様 Scene一覧」の正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)へ統一済み。EditModeテスト11件すべてPassed(Unity Editor Test Runnerで実行確認済み)。
+- **ゲーム実装**: Scene識別子(T-003)以外のゲーム機能・C#クラス(Domain/Infrastructure/Presentationの実装コード)は未実装。
 
 ### 完了済み
 - Unity 6 (6000.3.17f1) / URPの新規プロジェクトが作成済み。
@@ -276,38 +287,37 @@ Presentation と Infrastructure は相互に参照しない。
 - Unity MCPの接続を再確立し、再接続確認を複数回実施済み(読み取り専用)。プロジェクト名 `floating-islands-rpg`、Edit Mode、Console Error 0件を安定して確認。
 - 本PROJECT.mdの初稿を作成。
 - 7.要承認事項の全7項目(Unity MCP運用、戦闘Scene方式、セーブデータ形式、マスターデータ供給方法、SampleSceneの扱い、TutorialInfoの扱い、イベント通知方式)についてユーザーによる方針決定が完了し、承認済みとした。決定内容を4.設計/5.規約/7.要承認事項へ反映済み。
-- Phase 1のリポジトリ基盤を作成・コミット済み:
+- Phase 1のリポジトリ基盤を作成し、Pull Request #1経由で`main`へマージ・push済み:
   - `git init -b main` によるGitリポジトリ初期化(mainブランチ)。
   - Unity向け`.gitignore`、`.gitattributes`、`README.md`、`LICENSE`(MIT, Copyright 2026, 著作権者は暫定で `floating-islands-rpg contributors`)、最小CI `.github/workflows/repository-check.yml` を作成。
-  - 初回コミット2件を実施し、`main`を`origin`(GitHub: `floating-islands-rpg`)へpush済み(`origin/main`と同期済み)。
-- **T-001 プロジェクト基盤ディレクトリの作成(完了・コミット済み)**: `Assets/_Project/`配下にRuntime(Domain/Application/Presentation/Infrastructure)、Editor、Tests(EditMode/PlayMode)、Scenes、Prefabs、ScriptableObjects、UI、Art、Audio、Settingsの17フォルダをUnity MCP経由で作成。空フォルダのGit管理のため`.gitkeep`を配置。
-- **T-002 レイヤー別Assembly Definitionの作成(完了・コミット済み)**: 7個のasmdefを作成し、commit `a823f77`("build: define Unity assembly boundaries")でコミット済み。
-  - `FloatingIslandsRpg.Domain`, `FloatingIslandsRpg.Application`, `FloatingIslandsRpg.Infrastructure`, `FloatingIslandsRpg.Presentation`, `FloatingIslandsRpg.Editor`, `FloatingIslandsRpg.Tests.EditMode`, `FloatingIslandsRpg.Tests.PlayMode`。
-  - Domain / Application は `noEngineReferences: true`(UnityEngine非依存)。
-  - 依存方向(Domain ← Application ← Presentation/Infrastructure、DomainからPresentation/Infrastructureへの依存なし、Presentation⇔Infrastructure間の直接依存なし)と循環参照なしを確認済み(Unityコンパイル成功、および複数回の監査で確認)。
-  - 詳細は4.設計「Assembly Definition方針」参照。
-- **PROJECT.mdの文書整合修正(完了・コミット済み)**: T-001/T-002完了に伴う「6.現状」「4.設計(依存方向)」等の記述整合をcommit `dbd9ed3`("docs: align project status with assembly setup")でコミット済み。
+  - **T-001 プロジェクト基盤ディレクトリの作成**: `Assets/_Project/`配下にRuntime(Domain/Application/Presentation/Infrastructure)、Editor、Tests(EditMode/PlayMode)、Scenes、Prefabs、ScriptableObjects、UI、Art、Audio、Settingsの17フォルダをUnity MCP経由で作成。空フォルダのGit管理のため`.gitkeep`を配置。
+  - **T-002 レイヤー別Assembly Definitionの作成**: `FloatingIslandsRpg.Domain`, `.Application`, `.Infrastructure`, `.Presentation`, `.Editor`, `.Tests.EditMode`, `.Tests.PlayMode` の7個を作成。Domain / Application は `noEngineReferences: true`(UnityEngine非依存)。依存方向と循環参照なしを確認済み。詳細は4.設計「Assembly Definition方針」参照。
+  - PROJECT.mdの文書整合修正(T-001/T-002完了の反映、依存方向ブロックの修正等)。
+  - Pull Request #1(`feature/project-foundation` → `main`)をマージ(マージコミット`913b90e`)。
+- **T-003 Scene識別子・Scene名定義の作成(完了)**: `SceneId` (enum) と `SceneNameCatalog` (静的クラス) をApplication層に作成。EditModeテスト`SceneNameCatalogTests`を作成。詳細は4.設計「Scene識別子」参照。**現時点では未コミット**(`feature/scene-identifiers`ブランチのワーキングツリーに存在)。
+- **T-003 Codex第三者レビュー指摘対応(完了、本セッション)**: Major指摘(`SceneId`/`SceneNameCatalog`がPROJECT.md正式Scene一覧と不一致。`Sample`/`Bootstrap`を含み`Village`/`Dungeon`を欠いていた)を解消し、`Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`の6件へ統一。Minor指摘(Scene名検証が`string.IsNullOrEmpty`で空白文字列を検出できない)を`string.IsNullOrWhiteSpace`へ修正。テストはScene名個別対応6件(Title/Village/Field/Dungeon/Battle/GameClear)とenum/カタログ過不足検証2件の計8件を追加し、`SceneId.Sample`専用テスト1件を削除、既存の空白検証テストを`IsNullOrWhiteSpace`化。Unity Editor Test Runnerで全11件がPassed(failed 0, skipped 0)であることをユーザーが実行・確認済み。詳細は4.設計「Scene識別子」参照。
 
 ### 未完了
-- Domain/Application/Infrastructure/Presentationの実装コード(C#クラス)が1つも存在しない(asmdefの外枠のみ)。
+- Domain/Infrastructure/Presentationの実装コード(C#クラス)が1つも存在しない(SceneId/SceneNameCatalog以外はasmdefの外枠のみ)。
 - ゲームロジック・UI・Prefab・ScriptableObjectは一切未実装。
-- EditMode/PlayModeテストコードが1つも存在しない(Test Assembly自体はT-002で作成済み)。
-- `feature/project-foundation`ブランチが`origin`へ未push(T-001の`c29af6b`、T-002の`a823f77`、文書整合修正の`dbd9ed3`ともに未push)。
-- CIの実行結果は未確認(`main`へのpush時点のCI結果は未確認、`feature/project-foundation`はpush自体が未実施のため実行されていない)。
+- PlayModeテストコードが1つも存在しない(Test Assembly自体はT-002で作成済み)。
+- T-003の変更(`SceneId.cs`, `SceneNameCatalog.cs`, `SceneNameCatalogTests.cs`)が未コミット(現在の作業ブランチ`feature/scene-identifiers`のワーキングツリーに存在)。
+- `feature/scene-identifiers`ブランチが`origin`へ未push。
+- CIの実行結果は本セッションでは未確認。
 
 ### 既知の問題
 - (解消済み・記録として保持)過去セッションでUnity MCP用ツールが一時的に利用できず、GameObject削除をシーンYAMLの直接編集で行った回があった。現在はUnity MCP接続を再確認済みであり、5.規約「Unity MCP運用方針」により今後はSceneの直接テキスト編集を禁止し、MCP経由での変更を必須とする。
 - Unity MCPパッケージ自体に起因すると見られる`[WebSocket] Unexpected receive error`という1件のConsole Warningが、`refresh_unity`実行時などに断続的に発生することがある(ゲーム側のコード・アセットには起因しない)。発生の有無はセッションごとに変動するため、作業前後で都度Console確認を行う。
+- Unity Test Framework(および同梱のUnity.PerformanceTesting)は、テスト実行時にそれ自体の内部ログとして`Exception`種別1件("Saving results to: ...")と`Warning`種別2件(`IPrebuildSetup`/`IPostBuildCleanup`実行ログ)をConsoleへ出力することがある。テスト対象コードの不具合ではなく、EditModeテストを実行した場合に付随するUnity側の既知の挙動(テスト自体はすべてPassed)。テスト実行前後でConsoleを確認し、実際のテスト結果(passed/failed/skipped)と合わせて判断する。
 
 ### 次に行うこと
-- `feature/project-foundation`ブランチを`origin`へpushする(人間の判断・実行を待つ、現時点では未push)。
-- push後、CI(`.github/workflows/repository-check.yml`)が正しく実行され成功することを確認する。
-- Pull Requestを作成する。
-- レビューを経て`main`へマージする。
-- マージ後、次のタスクは **T-003(Scene名定数の定義)**。依存タスクT-002は完了済みのため着手可能。
-- **T-004(ステータス計算ロジック)** もT-002のみに依存するためT-003と並行して着手可能だが、現時点では未着手(着手はユーザー指示を待つ)。
+- 本セッションのT-003の変更(`SceneId.cs`, `SceneNameCatalog.cs`, `SceneNameCatalogTests.cs`, PROJECT.md更新分)をコミットする(人間の判断・実行を待つ)。
+- `feature/scene-identifiers`ブランチを`origin`へpushする。
+- push後、CIが正しく実行され成功することを確認する。
+- Pull Requestを作成し、レビューを経て`main`へマージする。
+- マージ後、次のタスクは **T-004(ステータス計算ロジック)** または **T-009(Scene遷移ユースケース)**。T-004はT-002のみに依存(着手可能)、T-009はT-003に依存(本セッションの完了により着手可能)。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
-- `Assets/Scenes/SampleScene.unity` は、正式なBootstrap/Title/Field/Battle Sceneが作成・検証されるまで保持する(削除しない)。
+- `Assets/Scenes/SampleScene.unity` は、正式なTitle/Village/Field/Dungeon/Battle/GameClear Sceneが作成・検証されるまで保持する(削除しない)。`Bootstrap`は現在のMVP正式Scene一覧には含めない(必要になった場合はPROJECT.md更新・承認後に別Taskで追加する)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
 
 ---
@@ -320,7 +330,7 @@ Presentation と Infrastructure は相互に参照しない。
 2. **戦闘Sceneの方式**: 承認済み。フィールドSceneに対するAdditiveロード方式を採用する。戦闘中はフィールド側の入力、カメラ、敵進行を停止する。戦闘終了後はフィールド状態を維持して復帰する。AudioListenerやEventSystemの重複を禁止する(4.設計「Scene構成」参照)。
 3. **セーブデータの保存形式**: 承認済み。バージョン付きJSON形式を採用する。MVPでは暗号化しない。一時ファイルへ保存後、正常時に本ファイルへ置換する。バックアップを1世代保持する。破損時はバックアップ復旧または安全な初期状態へ戻す。ScriptableObjectへ実行時状態を保存しない(4.設計「セーブデータ設計方針」参照)。
 4. **マスターデータの供給方法**: 承認済み。MVPではScriptableObjectのみを使用する。AddressablesはMVP対象外。Addressables導入を前提とした過剰な抽象化を行わない(4.設計「ScriptableObject方針」参照)。
-5. **既存の`Assets/Scenes/SampleScene.unity`の扱い**: 承認済み。現時点では保持する。正式なBootstrap、Title、Field、Battle Sceneが作成・検証された後に削除する(6.現状参照)。
+5. **既存の`Assets/Scenes/SampleScene.unity`の扱い**: 承認済み。現時点では保持する。正式なTitle/Village/Field/Dungeon/Battle/GameClear Sceneが作成・検証された後に削除する(`Bootstrap`は現在のMVP正式Scene一覧には含めない。6.現状参照)。
 6. **既存の`Assets/TutorialInfo`一式**: 承認済み。Unityテンプレート依存を確認し、不要と証明できた段階で削除する。現段階では削除しない(6.現状参照)。
 7. **イベント通知の実装方式**: 承認済み。局所的な通知にはC# eventを使用する。システム境界にはinterfaceを使用する。グローバルで静的な万能EventBusは作成しない。イベント購読解除漏れを防ぐ(4.設計「イベント通知方針」参照)。
 
@@ -328,14 +338,14 @@ Presentation と Infrastructure は相互に参照しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)が完了・コミット済みで、次はT-003以降に進める状態。
+> 本タスク一覧はPhase 1以降の実装計画。T-001(基盤ディレクトリ作成)・T-002(レイヤー別asmdef作成)は`main`にマージ済み。T-003(Scene識別子・Scene名定義)は完了(本セッション、`feature/scene-identifiers`ブランチ、未コミット)。次はT-004以降に進める状態。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
 |---------|------|----------|----------|----------|------------|
 | T-001 | プロジェクト基盤ディレクトリの作成(完了) | `Assets/_Project/Runtime/{Domain,Application,Presentation,Infrastructure}`, `Assets/_Project/Editor`, `Assets/_Project/Tests/{EditMode,PlayMode}`, `Assets/_Project/{Scenes,Prefabs,ScriptableObjects,UI,Art,Audio,Settings}` | 上記フォルダがすべて作成され、空でもUnityにエラーなく認識される | Unity Editorでフォルダ構成を目視確認、Consoleにエラーが出ないこと | なし |
 | T-002 | レイヤー別asmdefの作成(完了・コミット済み: `a823f77`) | `FloatingIslandsRpg.Domain.asmdef`, `FloatingIslandsRpg.Application.asmdef`, `FloatingIslandsRpg.Infrastructure.asmdef`, `FloatingIslandsRpg.Presentation.asmdef`, `FloatingIslandsRpg.Editor.asmdef`, `FloatingIslandsRpg.Tests.EditMode.asmdef`, `FloatingIslandsRpg.Tests.PlayMode.asmdef` | 7個のasmdefが作成され、依存方向(4.設計参照)通りに参照設定されている | Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-001 |
-| T-003 | Scene名定数の定義 | `Domain`または`Infrastructure`層にSceneID/Scene名の定数(enum等) | マジックストリングでのSceneManager呼び出しを避けられる定義が用意されている | コードレビューで直書き文字列がないことを確認 | T-002 |
+| T-003 | Scene識別子・Scene名定義の作成(完了、Codex第三者レビュー指摘対応完了) | `Assets/_Project/Runtime/Application/Scenes/SceneId.cs`, `SceneNameCatalog.cs`, `Assets/_Project/Tests/EditMode/Scenes/SceneNameCatalogTests.cs` | マジックストリングでのSceneManager呼び出しを避けられる定義が用意されている。SceneIdはPROJECT.md「3.仕様 Scene一覧」の正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)と一致する | EditModeテスト11件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-002 |
 | T-004 | ステータス計算ロジック(Domain) | HP/MP/攻撃力等の基礎ステータスとレベルアップ時の成長計算 | レベル1〜想定最大レベルまでのステータスが決定的に計算できる | EditModeテストで代表レベルの期待値と一致することを確認 | T-002 |
 | T-005 | 戦闘計算ロジック(Domain) | ダメージ計算、命中/回避、行動順決定 | 攻撃側/防御側のステータスからダメージ量・行動順が一意に決定できる | EditModeテストで既知の入力に対する出力を検証 | T-004 |
 | T-006 | 経験値・レベルアップ計算(Domain) | 経験値テーブル、レベルアップ判定 | 経験値加算により正しいタイミングでレベルアップが発生する | EditModeテストで境界値(閾値ちょうど等)を検証 | T-004 |
