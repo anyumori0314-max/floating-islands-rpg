@@ -145,6 +145,160 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Save
         }
 
         [Test]
+        public void TryLoad_PrimaryHasUnsupportedSaveVersion_FallsBackToBackup()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var validBackupCandidate = CreateSnapshot();
+            validBackupCandidate.TotalExperience = 555;
+            storage.Write(UnityEngine.JsonUtility.ToJson(validBackupCandidate));
+
+            var invalidPrimary = CreateSnapshot();
+            invalidPrimary.SaveVersion = SaveGameSnapshot.CurrentSaveVersion + 1;
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidPrimary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(555, snapshot.TotalExperience);
+        }
+
+        [Test]
+        public void TryLoad_PrimaryHasMaxHpZero_FallsBackToBackup()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var validBackupCandidate = CreateSnapshot();
+            validBackupCandidate.TotalExperience = 555;
+            storage.Write(UnityEngine.JsonUtility.ToJson(validBackupCandidate));
+
+            var invalidPrimary = CreateSnapshot();
+            invalidPrimary.MaxHp = 0;
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidPrimary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(555, snapshot.TotalExperience);
+        }
+
+        [Test]
+        public void TryLoad_PrimaryHasCurrentHpExceedingMaxHp_FallsBackToBackup()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var validBackupCandidate = CreateSnapshot();
+            validBackupCandidate.TotalExperience = 555;
+            storage.Write(UnityEngine.JsonUtility.ToJson(validBackupCandidate));
+
+            var invalidPrimary = CreateSnapshot();
+            invalidPrimary.MaxHp = 50;
+            invalidPrimary.CurrentHp = 999;
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidPrimary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(555, snapshot.TotalExperience);
+        }
+
+        [Test]
+        public void TryLoad_PrimaryHasInvalidSceneId_FallsBackToBackup()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var validBackupCandidate = CreateSnapshot();
+            validBackupCandidate.TotalExperience = 555;
+            storage.Write(UnityEngine.JsonUtility.ToJson(validBackupCandidate));
+
+            var invalidPrimary = CreateSnapshot();
+            invalidPrimary.CurrentSceneId = (SceneId)999;
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidPrimary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(555, snapshot.TotalExperience);
+        }
+
+        [Test]
+        public void TryLoad_PrimaryValid_DoesNotUseBackup()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var backupCandidate = CreateSnapshot();
+            backupCandidate.TotalExperience = 111;
+            storage.Write(UnityEngine.JsonUtility.ToJson(backupCandidate));
+
+            var primary = CreateSnapshot();
+            primary.TotalExperience = 222;
+            storage.Write(UnityEngine.JsonUtility.ToJson(primary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(222, snapshot.TotalExperience);
+        }
+
+        [Test]
+        public void TryLoad_BothPrimaryAndBackupSemanticallyInvalid_ReturnsFalse()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var invalidBackupCandidate = CreateSnapshot();
+            invalidBackupCandidate.MaxHp = 0;
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidBackupCandidate));
+
+            var invalidPrimary = CreateSnapshot();
+            invalidPrimary.SaveVersion = SaveGameSnapshot.CurrentSaveVersion + 1;
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidPrimary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsFalse(found);
+            Assert.IsNull(snapshot);
+        }
+
+        [Test]
+        public void TryLoad_DoesNotModifyExistingFiles()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            repository.Save(CreateSnapshot());
+            repository.Save(CreateSnapshot());
+            storage.TryReadPrimary(out var primaryBefore);
+            storage.TryReadBackup(out var backupBefore);
+
+            // Act
+            repository.TryLoad(out _);
+
+            // Assert
+            storage.TryReadPrimary(out var primaryAfter);
+            storage.TryReadBackup(out var backupAfter);
+            Assert.AreEqual(primaryBefore, primaryAfter);
+            Assert.AreEqual(backupBefore, backupAfter);
+        }
+
+        [Test]
         public void Save_MultipleTimes_LatestIsLoaded()
         {
             // Arrange
