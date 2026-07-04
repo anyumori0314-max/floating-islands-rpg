@@ -1,7 +1,7 @@
 # PROJECT.md
 
 > floating-islands-rpg の設計方針・スコープ・実装タスクを一元管理するドキュメント。
-> 最終更新: 2026-07-04 (T-008〜T-012(戦闘進行/Scene遷移/セーブロード/セーブ基盤/マスターデータ)完了、全230件Passedを反映)
+> 最終更新: 2026-07-04 (Codex第三者レビュー: T-008/T-009/T-011のMajor2件・Minor1件対応完了、全249件Passedを反映)
 
 ---
 
@@ -250,6 +250,7 @@ Assets/
 - 行動順は`CombatCalculator.CompareTurnOrder`のAgility比較結果を用いる。同速(比較結果が0)の場合はプレイヤー側が先制するとApplication層で決定した(Domain層はタイブレークを決定しない設計のため)。
 - MVP範囲は主人公1人対敵1体・Attackコマンドのみ。戦闘不能になった側は以後行動せず、戦闘終了(`PlayerVictory`/`PlayerDefeat`)後に`ExecuteTurn`を呼ぶと`InvalidOperationException`を送出する。
 - **今回のスコープ外**: 戦闘UI、戦闘Scene、MonoBehaviour、敵AI、アニメーション、エフェクト、属性相性、バフ・デバフ、装備処理、クリティカル、経験値・報酬付与、Scene遷移は実装しない。
+- **Codex第三者レビュー指摘への対応(本セッション)**: Minor指摘(`BattleTurnResult.Actions`が`IReadOnlyList`型で公開されているが実体は内部の`List<BattleActionResult>`のため、`(List<BattleActionResult>)result.Actions`のようにキャストしてAdd/Clearが可能だった)を解消。内部保持を`ReadOnlyCollection<BattleActionResult>`(`.AsReadOnly()`)へ変更し、防御的コピー後にラップすることで、入力元Listの事後変更の非影響とキャストによる変更不可(`List<T>`へのキャストは`InvalidCastException`、`IList<T>`へのキャストからのAdd呼び出しは`NotSupportedException`)の両方を満たす。`BattleSession`等の戦闘ロジックは変更していない。
 
 ### Scene遷移ユースケース(T-009で作成済み)
 - `Assets/_Project/Runtime/Application/Scenes/`に`ISceneLoader`(インターフェース)、`SceneLoadMode`(Single/Additive)、`SceneTransitionUseCase`を追加。T-003の`SceneId`/`SceneNameCatalog`を使用し、Scene名の直接文字列指定を行わない。
@@ -257,6 +258,7 @@ Assets/
 - `SceneTransitionUseCase`は同時実行(再入)を検出すると`InvalidOperationException`を送出し、`ISceneLoader`側の例外はそのまま呼び出し元へ伝播させる(握りつぶさない)。
 - 通常SceneはSingle、Battle SceneはAdditiveで読み込む想定(呼び出し側が`SceneLoadMode`を指定)。`UnloadScene`でBattle Sceneのアンロード要求を表現できる。
 - **今回のスコープ外**: 新規Scene作成、SampleScene変更、EditorBuildSettings変更、実際のBattle Additive統合、AudioListener/EventSystem操作、Scene履歴・フェード・ローディング画面は実装しない。
+- **Codex第三者レビュー指摘への対応(本セッション)**: Major指摘(`UnitySceneLoader`は`LoadSceneAsync`/`UnloadSceneAsync`を開始するだけの非同期処理であるにもかかわらず、`SceneTransitionUseCase`は`ISceneLoader`呼び出し直後に遷移中フラグを解除しており、Unity側のロード/アンロード完了前に次の遷移要求を受け付けてしまっていた)を解消。`ISceneLoader`を`Task LoadAsync(...)`/`Task UnloadAsync(...)`のTaskベースへ変更し、`SceneTransitionUseCase`を`async Task`の`TransitionToAsync`/`UnloadSceneAsync`として、実際の完了(`await`完了または例外)まで`finally`で遷移中フラグを保持・解除する構成にした。`UnitySceneLoader`は`AsyncOperation.isDone`/`completed`イベントを`TaskCompletionSource`でTask化し、`LoadSceneAsync`/`UnloadSceneAsync`が`null`を返す場合は`InvalidOperationException`を送出する。`async void`は使用せず、新規Packageも追加していない。CancellationToken・遷移キュー・履歴管理・フェード処理は本対応では追加していない。
 
 ### セーブ/ロードユースケース・PlayerSessionState(T-010で作成済み)
 - `Assets/_Project/Runtime/Application/Session/PlayerSessionState.cs`: 現在`SceneId`・`CharacterStats`・累積経験値・現在HP/MP・メイン/サブ2クエストの`QuestProgress`を保持する実行時セッションモデル。4.設計「Scene構成」の「Sceneをまたいで保持するApplication層のセッション状態」方針に対応する。public setterは持たず、`MoveToScene`/`SetCurrentHp`/`SetCurrentMp`/`GainExperience`等の検証付きメソッドでのみ状態を変更する。
@@ -270,6 +272,7 @@ Assets/
 - 保存先ディレクトリは`FileSystemSaveStorage`のコンストラクタ引数として注入可能(`Application.persistentDataPath`のハードコードなし)。破損データ読込時は自動的にバックアップへフォールバックし、両方とも破損している場合は`TryLoad`が`false`を返す(安全な初期状態への復帰はLoadGameUseCase呼び出し元の責務)。
 - **確認方法についての注記**: `Assets/_Project/Tests/EditMode`の既存asmdef(T-002)がInfrastructureを参照しない設計のため、PROJECT.md記載の「EditModeテストで検証」ではなく**PlayModeテストで検証した**(`Tests.PlayMode.asmdef`はDomain/Application/Infrastructure/Presentationを参照済みのため、追加のasmdef変更は不要だった)。
 - 新しいPackageは追加していない(Unity標準の`JsonUtility`のみ使用)。
+- **Codex第三者レビュー指摘への対応(本セッション)**: Major指摘(一次保存データがJSONとして読み取れた時点で成功扱いとしていたため、未対応SaveVersion・MaxHp=0・CurrentHp>MaxHp・不正なSceneId/QuestStateなど「構文上は正常だがゲームデータとして無効」な一次ファイルに対してバックアップへフォールバックできていなかった)を解消。`JsonSaveRepository.TryLoad`を「JSON解析成功」→「`PlayerSessionStateMapper.FromSnapshot`相当の意味検証成功」の2段階を通過した候補のみ有効とする構成に変更し、一次候補が失敗した場合のみ同条件でバックアップを検証する。意味検証は`ArgumentException`/`NotSupportedException`のみを捕捉し、`OutOfMemoryException`等の致命的例外は広く握りつぶさない。読込処理は一次・バックアップいずれのファイルも書き換えない。`ISaveRepository`の公開APIおよびT-010の`PlayerSessionStateMapper`/`LoadGameUseCase`は変更していない(Infrastructure→Applicationの既存依存方向内で`PlayerSessionStateMapper`を呼び出すのみ)。
 
 ### マスターデータ定義(T-012で作成済み)
 - `Assets/_Project/Runtime/Domain/MasterData/`に`EnemyMasterData`/`ItemMasterData`/`EquipmentMasterData`(不変クラス、ID・表示名等の入力検証付き)、`EquipmentSlot`(enum: Weapon/Armor)、`MasterDataValidator.EnsureUniqueIds`(ID重複検出)を作成。
@@ -352,10 +355,10 @@ Presentation と Infrastructure は相互に参照しない。
 - **T-005: 完了・`main`にマージ済み**(Codex第三者レビューMajor指摘対応完了、PR #4)。戦闘計算ロジック(`CombatCalculator`: ダメージ計算・命中/回避・行動順決定)をDomain層に作成。EditModeテスト40件すべてPassed。
 - **T-006: 完了・`main`にマージ済み**(Codex第三者レビュー合格済み、PR #4)。経験値・レベルアップ計算ロジック(`ExperienceTable`, `LevelUpCalculator`)をDomain層に作成。EditModeテスト20件すべてPassed。
 - **T-007: 完了・`main`にマージ済み**(Codex第三者レビュー合格済み、PR #4)。クエスト状態管理(`QuestState`, `QuestProgress`)をDomain層に作成。EditModeテスト8件すべてPassed。
-- **T-008: 完了(`feature/gameplay-application-foundation`ブランチ、mainへ未マージ)**。戦闘進行ユースケース(`BattleSession`等)をApplication層に作成。EditModeテスト22件すべてPassed。
-- **T-009: 完了(`feature/gameplay-application-foundation`ブランチ、mainへ未マージ)**。Scene遷移ユースケース(`SceneTransitionUseCase`, `UnitySceneLoader`)をApplication/Infrastructure層に作成。EditModeテスト10件すべてPassed。
+- **T-008: 完了(`feature/gameplay-application-foundation`ブランチ、Codex第三者レビューMinor指摘対応完了、mainへ未マージ)**。戦闘進行ユースケース(`BattleSession`等)をApplication層に作成。EditModeテスト27件すべてPassed。
+- **T-009: 完了(`feature/gameplay-application-foundation`ブランチ、Codex第三者レビューMajor指摘対応完了、mainへ未マージ)**。Scene遷移ユースケース(`SceneTransitionUseCase`, `UnitySceneLoader`)をApplication/Infrastructure層に作成。EditModeテスト17件すべてPassed。
 - **T-010: 完了(`feature/gameplay-application-foundation`ブランチ、mainへ未マージ)**。セーブ/ロードユースケースと`PlayerSessionState`をApplication層に作成。EditModeテスト34件すべてPassed。
-- **T-011: 完了(`feature/gameplay-application-foundation`ブランチ、mainへ未マージ)**。セーブデータ保存基盤(`FileSystemSaveStorage`, `JsonSaveRepository`)をInfrastructure層に作成。PlayModeテスト17件すべてPassed。
+- **T-011: 完了(`feature/gameplay-application-foundation`ブランチ、Codex第三者レビューMajor指摘対応完了、mainへ未マージ)**。セーブデータ保存基盤(`FileSystemSaveStorage`, `JsonSaveRepository`)をInfrastructure層に作成。PlayModeテスト24件すべてPassed。
 - **T-012: 完了(`feature/gameplay-application-foundation`ブランチ、mainへ未マージ)**。敵/アイテム/装備マスターデータ定義をDomain/Infrastructure層に作成。EditModeテスト35件すべてPassed。
 - **ゲーム実装**: T-003〜T-012で作成した範囲(Scene識別子、キャラクターステータス計算、戦闘計算・進行、経験値・レベルアップ計算、クエスト状態管理、Scene遷移、セーブ/ロード、マスターデータ定義)以外のゲーム機能・C#クラス(Presentationの実装コード、実際のScene/Prefab/UI等)は未実装。
 
@@ -382,18 +385,21 @@ Presentation と Infrastructure は相互に参照しない。
 - **T-006 経験値・レベルアップ計算の作成(完了、`feature/domain-combat-core`ブランチ、Codex第三者レビュー合格済み、mainへ未マージ)**: `ExperienceTable`(不変の経験値テーブル)、`LevelUpCalculator`(静的計算関数)をDomain層(`Assets/_Project/Runtime/Domain/Progression/`)に作成。レベルごとの累積必要経験値を外部配列として受け取り、`CalculateLevel(table, totalExperience)`で到達レベルを一意に決定する。PROJECT.md上T-005ではなくT-004にのみ依存するため、`CombatCalculator`との結合は行っていない。EditModeテスト(`ExperienceTableTests`10件、`LevelUpCalculatorTests`10件、計20件)を作成し、全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件を確認済み。詳細は4.設計「経験値・レベルアップ計算」参照。
 - **T-007 クエスト状態管理の作成(完了、`feature/domain-combat-core`ブランチ、Codex第三者レビュー合格済み、mainへ未マージ)**: `QuestState`(enum)、`QuestProgress`(状態遷移クラス)をDomain層(`Assets/_Project/Runtime/Domain/Quests/`)に作成。`NotStarted→InProgress→Completed`の一方向遷移のみを許可し、不正な遷移は`InvalidOperationException`で拒否する。メイン1本・サブ2本は独立した`QuestProgress`インスタンスとして表現する。EditModeテスト`QuestProgressTests`8件を作成し、全件Passed(failed 0, skipped 0)、Console Error 0件・Warning 0件を確認済み。詳細は4.設計「クエスト状態管理」参照。
 - **T-005〜T-007のmainマージ**: `feature/domain-combat-core`ブランチがPull Request #4を経て`main`へマージされた。
-- **T-008 戦闘進行ユースケースの作成(完了)**: `BattleSession`/`BattleParticipantState`/`BattleActionResult`/`BattleTurnResult`/`BattleCommand`/`BattleOutcome`/`IRandomSource`をApplication層(`Assets/_Project/Runtime/Application/Battle/`)に作成。T-005の`CombatCalculator`を利用し計算式を重複実装していない。乱数は`IRandomSource`経由で注入しApplication内でSystem.Randomを生成しない。EditModeテスト(`BattleParticipantStateTests`6件、`BattleSessionTests`16件、計22件)を作成し、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)を確認済み。詳細は4.設計「戦闘進行ユースケース」参照。
-- **T-009 Scene遷移ユースケースの作成(完了)**: `ISceneLoader`/`SceneLoadMode`/`SceneTransitionUseCase`をApplication層(`Assets/_Project/Runtime/Application/Scenes/`)に、`UnitySceneLoader`をInfrastructure層(`Assets/_Project/Runtime/Infrastructure/Scenes/`)に作成。T-003の`SceneId`/`SceneNameCatalog`を使用しScene名を直接文字列で記述しない。EditModeテスト`SceneTransitionUseCaseTests`10件(Fake `ISceneLoader`使用)を作成し、全件Passed。詳細は4.設計「Scene遷移ユースケース」参照。
+- **T-008 戦闘進行ユースケースの作成(完了)**: `BattleSession`/`BattleParticipantState`/`BattleActionResult`/`BattleTurnResult`/`BattleCommand`/`BattleOutcome`/`IRandomSource`をApplication層(`Assets/_Project/Runtime/Application/Battle/`)に作成。T-005の`CombatCalculator`を利用し計算式を重複実装していない。乱数は`IRandomSource`経由で注入しApplication内でSystem.Randomを生成しない。詳細は4.設計「戦闘進行ユースケース」参照。
+- **T-009 Scene遷移ユースケースの作成(完了)**: `ISceneLoader`/`SceneLoadMode`/`SceneTransitionUseCase`をApplication層(`Assets/_Project/Runtime/Application/Scenes/`)に、`UnitySceneLoader`をInfrastructure層(`Assets/_Project/Runtime/Infrastructure/Scenes/`)に作成。T-003の`SceneId`/`SceneNameCatalog`を使用しScene名を直接文字列で記述しない。詳細は4.設計「Scene遷移ユースケース」参照。
 - **T-010 セーブ/ロードユースケースの作成(完了)**: `PlayerSessionState`(Application/Session)、`SaveGameSnapshot`/`PlayerSessionStateMapper`/`ISaveRepository`/`SaveResult`/`LoadResult`/`SaveGameUseCase`/`LoadGameUseCase`(Application/Save)を作成。EditModeテスト(`PlayerSessionStateTests`20件、`PlayerSessionStateMapperTests`7件、`SaveLoadUseCaseTests`7件、計34件)を作成し、全件Passed。詳細は4.設計「セーブ/ロードユースケース・PlayerSessionState」参照。
-- **T-011 セーブデータ保存基盤の作成(完了)**: `FileSystemSaveStorage`/`JsonSaveRepository`をInfrastructure層(`Assets/_Project/Runtime/Infrastructure/Save/`)に作成。`UnityEngine.JsonUtility`使用のため`SaveGameSnapshot`をpublicフィールド化(4.設計「セーブデータ保存基盤」参照)。Tests.EditMode.asmdefがInfrastructure未参照のため、PlayModeテスト(`FileSystemSaveStorageTests`9件、`JsonSaveRepositoryTests`8件、計17件)で検証し、全件Passed。新規Packageは追加していない。
+- **T-011 セーブデータ保存基盤の作成(完了)**: `FileSystemSaveStorage`/`JsonSaveRepository`をInfrastructure層(`Assets/_Project/Runtime/Infrastructure/Save/`)に作成。`UnityEngine.JsonUtility`使用のため`SaveGameSnapshot`をpublicフィールド化(4.設計「セーブデータ保存基盤」参照)。Tests.EditMode.asmdefがInfrastructure未参照のため、PlayModeテストで検証。新規Packageは追加していない。
 - **T-012 マスターデータ定義の作成(完了)**: `EnemyMasterData`/`ItemMasterData`/`EquipmentMasterData`/`EquipmentSlot`/`MasterDataValidator`をDomain層(`Assets/_Project/Runtime/Domain/MasterData/`)に、`EnemyDefinition`/`ItemDefinition`/`EquipmentDefinition`(ScriptableObject)をInfrastructure層(`Assets/_Project/Runtime/Infrastructure/MasterData/`)に作成。EditModeテスト(`EnemyMasterDataTests`13件、`ItemMasterDataTests`8件、`EquipmentMasterDataTests`10件、`MasterDataValidatorTests`4件、計35件)を作成し、全件Passed。実データAssetはダミー含め作成していない。
-- **T-008〜T-012 テスト実行結果**: Unity Editor Test Runnerで実行し、EditMode 213件(既存T-003〜T-007の112件+新規T-008/T-009/T-010/T-012の101件)、PlayMode 17件(T-011)、合計230件。passed 230 / failed 0 / skipped 0、Console Error 0件・Warning 0件をユーザーが実行・確認済み。
+- **T-008 Codex第三者レビュー指摘対応(完了、本セッション)**: Minor指摘(`BattleTurnResult.Actions`が`IReadOnlyList`型公開だが実体は内部`List<BattleActionResult>`のため、キャストしてAdd/Clearが可能だった)を解消。内部保持を`ReadOnlyCollection<BattleActionResult>`へ変更し、防御的コピー後にラップした。新規`BattleTurnResultTests`5件を追加(入力List変更の非影響、List/IListキャストでの変更不可、順序・内容維持)。`BattleSession`等は変更していない。EditModeテスト全体は22件→27件。
+- **T-009 Codex第三者レビュー指摘対応(完了、本セッション)**: Major指摘(`UnitySceneLoader`が非同期のLoad/UnloadSceneAsyncを開始するだけなのに、`SceneTransitionUseCase`が呼び出し直後に遷移中フラグを解除しており、Unity側の完了前に次の遷移要求を受け付けていた)を解消。`ISceneLoader`をTaskベース(`LoadAsync`/`UnloadAsync`)へ変更し、`SceneTransitionUseCase`を`async Task`化して実際の完了まで`finally`でフラグを保持・解除する構成にした。`UnitySceneLoader`は`AsyncOperation.isDone`/`completed`をTask化し、nullが返る場合は例外化した。`async void`不使用、新規Package追加なし。`SceneTransitionUseCaseTests`を10件→17件に拡充(Load/Unloadそれぞれの二重遷移拒否・完了後許可・失敗後許可・nullTask例外化)。
+- **T-011 Codex第三者レビュー指摘対応(完了、本セッション)**: Major指摘(一次保存データがJSONとして読み取れた時点で成功扱いとなり、未対応SaveVersion・MaxHp=0・CurrentHp>MaxHp・不正なSceneId/QuestStateなど意味的に無効なデータでバックアップへフォールバックできていなかった)を解消。`JsonSaveRepository.TryLoad`を「JSON解析成功」→「`PlayerSessionStateMapper.FromSnapshot`相当の意味検証成功」の2段階検証へ変更し、一次候補失敗時のみ同条件でバックアップを検証する構成にした。読込処理は既存ファイルを書き換えない。T-010の`ISaveRepository`公開APIおよび`PlayerSessionStateMapper`/`LoadGameUseCase`は変更していない。`JsonSaveRepositoryTests`を8件→15件に拡充(未対応SaveVersion/MaxHp=0/CurrentHp超過/不正SceneIdでのバックアップ復旧、正常時バックアップ不使用、両方無効時の失敗、読込時の既存ファイル不変性)。PlayModeテスト全体は17件→24件。
+- **T-008〜T-012 + Codex指摘対応 テスト実行結果**: Unity Editor Test Runnerで実行し、EditMode 225件(T-003〜T-007の112件+T-008 27件+T-009 17件+T-010 34件+T-012 35件)、PlayMode 24件(T-011)、合計249件。passed 249 / failed 0 / skipped 0、Console Error 0件・Warning 0件をユーザーが実行・確認済み。`ProjectSettings/EditorSettings.asset`の差分なしも確認済み。
 
 ### 未完了
 - Presentationの実装コード(C#クラス)が1つも存在しない(asmdefの外枠のみ)。
 - ゲームUI・Prefab・実際のScene・実データAsset(敵/アイテム/装備等)は一切未実装。
 - CIの実行結果は本セッションでは未確認。
-- T-008〜T-012の変更(`Application/Battle/`, `Application/Scenes/`の追加分, `Application/Session/`, `Application/Save/`, `Infrastructure/Scenes/`, `Infrastructure/Save/`, `Domain/MasterData/`, `Infrastructure/MasterData/`、および対応するEditMode/PlayModeテスト)が未コミット(現在の作業ブランチ`feature/gameplay-application-foundation`のワーキングツリーに存在)。
+- T-008〜T-012の変更、およびCodex第三者レビュー指摘対応(`BattleTurnResult.cs`, `ISceneLoader.cs`, `SceneTransitionUseCase.cs`, `UnitySceneLoader.cs`, `JsonSaveRepository.cs`と対応するEditMode/PlayModeテスト)が未コミット(現在の作業ブランチ`feature/gameplay-application-foundation`のワーキングツリーに存在)。
 - `feature/gameplay-application-foundation`ブランチが`origin`へ未push。
 - Presentation層でのT-008〜T-012の利用(戦闘UI、Scene遷移の実統合、タイトル画面からのロード等)は未実装(T-013以降で対応予定)。
 - 経験値獲得からのレベル再計算・ステータス反映(T-004/T-006とT-008/T-010の統合)、実際のマスターデータAssetの作成は未実装(将来Task想定、推測での先行実装は行っていない)。
@@ -404,8 +410,8 @@ Presentation と Infrastructure は相互に参照しない。
 - Unity Test Framework(および同梱のUnity.PerformanceTesting)は、テスト実行時にそれ自体の内部ログとして`Exception`種別1件("Saving results to: ...")と`Warning`種別2件(`IPrebuildSetup`/`IPostBuildCleanup`実行ログ)をConsoleへ出力することがある。テスト対象コードの不具合ではなく、EditModeテストを実行した場合に付随するUnity側の既知の挙動(テスト自体はすべてPassed)。テスト実行前後でConsoleを確認し、実際のテスト結果(passed/failed/skipped)と合わせて判断する。
 
 ### 次に行うこと
-- T-008〜T-012の変更をコミットする(人間の判断・実行を待つ)。
-- Codex第三者レビューへ提出する。
+- T-008〜T-012の変更とCodex第三者レビュー指摘対応(Major2件・Minor1件)をコミットする(人間の判断・実行を待つ)。
+- Codex第三者レビューへ再提出し、Major/Minor指摘の解消を確認する。
 - `feature/gameplay-application-foundation`ブランチを`origin`へpushする。
 - Pull Requestを作成する。
 - CIが正しく実行され成功することを確認する。
@@ -445,10 +451,10 @@ Presentation と Infrastructure は相互に参照しない。
 | T-005 | 戦闘計算ロジック(Domain)(完了・`main`にマージ済み、Codex第三者レビューMajor指摘対応完了) | `Assets/_Project/Runtime/Domain/Combat/CombatCalculator.cs`, `Assets/_Project/Tests/EditMode/Combat/CombatCalculatorTests.cs` | 攻撃側/防御側のステータスからダメージ量・行動順が一意に決定できる。`ResolveHit`のhitChance/randomRollは非数値(NaN/Infinity)を拒否し、randomRollの有効範囲は`[0.0, 1.0)`とする | EditModeテスト40件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-004 |
 | T-006 | 経験値・レベルアップ計算(Domain)(完了・`main`にマージ済み、Codex第三者レビュー合格済み) | `Assets/_Project/Runtime/Domain/Progression/ExperienceTable.cs`, `LevelUpCalculator.cs`, `Assets/_Project/Tests/EditMode/Progression/`配下のEditModeテスト2ファイル | 経験値加算により正しいタイミングでレベルアップが発生する | EditModeテスト20件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-004 |
 | T-007 | クエスト状態管理(Domain)(完了・`main`にマージ済み、Codex第三者レビュー合格済み) | `Assets/_Project/Runtime/Domain/Quests/QuestState.cs`, `QuestProgress.cs`, `Assets/_Project/Tests/EditMode/Quests/QuestProgressTests.cs` | メイン1本・サブ2本分の状態遷移が矛盾なく行える | EditModeテスト8件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-002 |
-| T-008 | 戦闘進行ユースケース(Application)(完了) | `Assets/_Project/Runtime/Application/Battle/`配下(`BattleSession`等7ファイル)、`Assets/_Project/Tests/EditMode/Battle/`配下のEditModeテスト2ファイル | コマンド入力から勝利/敗北いずれかの結果が返るまで一連の流れが完結する | EditModeテスト22件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-005 |
-| T-009 | Scene遷移ユースケース(Application)(完了) | `Assets/_Project/Runtime/Application/Scenes/`配下(`ISceneLoader`, `SceneLoadMode`, `SceneTransitionUseCase`)、`Assets/_Project/Runtime/Infrastructure/Scenes/UnitySceneLoader.cs`、`Assets/_Project/Tests/EditMode/Scenes/SceneTransitionUseCaseTests.cs` | 村→フィールド→ダンジョン→戦闘→復帰の遷移がコード上で表現できる | EditModeテスト10件がPassed(Fake `ISceneLoader`使用)、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-003 |
+| T-008 | 戦闘進行ユースケース(Application)(完了、Codex第三者レビューMinor指摘対応完了) | `Assets/_Project/Runtime/Application/Battle/`配下(`BattleSession`等7ファイル)、`Assets/_Project/Tests/EditMode/Battle/`配下のEditModeテスト3ファイル | コマンド入力から勝利/敗北いずれかの結果が返るまで一連の流れが完結する。`BattleTurnResult.Actions`は外部から変更不可 | EditModeテスト27件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-005 |
+| T-009 | Scene遷移ユースケース(Application)(完了、Codex第三者レビューMajor指摘対応完了) | `Assets/_Project/Runtime/Application/Scenes/`配下(`ISceneLoader`, `SceneLoadMode`, `SceneTransitionUseCase`)、`Assets/_Project/Runtime/Infrastructure/Scenes/UnitySceneLoader.cs`、`Assets/_Project/Tests/EditMode/Scenes/SceneTransitionUseCaseTests.cs` | 村→フィールド→ダンジョン→戦闘→復帰の遷移がコード上で表現できる。実際のロード/アンロード完了まで遷移中状態を維持する | EditModeテスト17件がPassed(Fake `ISceneLoader`使用)、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-003 |
 | T-010 | セーブ/ロードユースケース(Application)(完了) | `Assets/_Project/Runtime/Application/Session/PlayerSessionState.cs`、`Assets/_Project/Runtime/Application/Save/`配下(7ファイル)、`Assets/_Project/Tests/EditMode/Session/`, `Assets/_Project/Tests/EditMode/Save/`配下のEditModeテスト3ファイル | セーブしたデータをロードした際に元の状態と一致する | EditModeテスト34件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-004, T-007 |
-| T-011 | セーブデータ保存基盤(Infrastructure)(完了) | `Assets/_Project/Runtime/Infrastructure/Save/`配下(`FileSystemSaveStorage.cs`, `JsonSaveRepository.cs`)、`Assets/_Project/Tests/PlayMode/Save/`配下のPlayModeテスト2ファイル | ファイルの書き込み・読み込みが成功し、破損データ読込時はバックアップ復旧または安全な初期状態へ戻せる | PlayModeテスト17件がPassed(Tests.EditMode.asmdefがInfrastructure未参照のためPlayModeで検証)、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-010 |
+| T-011 | セーブデータ保存基盤(Infrastructure)(完了、Codex第三者レビューMajor指摘対応完了) | `Assets/_Project/Runtime/Infrastructure/Save/`配下(`FileSystemSaveStorage.cs`, `JsonSaveRepository.cs`)、`Assets/_Project/Tests/PlayMode/Save/`配下のPlayModeテスト2ファイル | ファイルの書き込み・読み込みが成功し、破損データ読込時はバックアップ復旧または安全な初期状態へ戻せる。意味検証を通過した候補のみを有効とする | PlayModeテスト24件がPassed(Tests.EditMode.asmdefがInfrastructure未参照のためPlayModeで検証)、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-010 |
 | T-012 | 敵/アイテム/装備マスターデータ定義(Infrastructure)(完了) | `Assets/_Project/Runtime/Domain/MasterData/`配下(5ファイル)、`Assets/_Project/Runtime/Infrastructure/MasterData/`配下(3ファイル)、`Assets/_Project/Tests/EditMode/MasterData/`配下のEditModeテスト4ファイル | 通常敵3種、ボス1体、アイテム、装備のデータ定義クラスが用意されている | EditModeテスト35件がPassed(検証ロジックのDomain層テスト)、実データAssetの作成はUnity Editorでの手動確認対象 | T-002 |
 | T-013 | プレイヤー移動・カメラ(Presentation) | 新Input Systemを用いた3D移動、追従カメラ | フィールド上でプレイヤーが移動でき、カメラが追従する | 手動プレイで移動・カメラ挙動を確認 | T-001 |
 | T-014 | NPC会話UI(Presentation) | 会話ウィンドウ、テキスト送り | NPCに話しかけると会話ウィンドウが開き、読み進められる | 手動プレイで会話開始〜終了までを確認 | T-013 |
