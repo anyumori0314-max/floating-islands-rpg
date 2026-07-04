@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace FloatingIslandsRpg.Application.Scenes
 {
@@ -17,7 +18,7 @@ namespace FloatingIslandsRpg.Application.Scenes
             _sceneLoader = sceneLoader;
         }
 
-        public void TransitionTo(SceneId sceneId, SceneLoadMode loadMode)
+        public async Task TransitionToAsync(SceneId sceneId, SceneLoadMode loadMode)
         {
             ValidateSceneId(sceneId);
             ValidateLoadMode(loadMode);
@@ -25,7 +26,13 @@ namespace FloatingIslandsRpg.Application.Scenes
             BeginTransition();
             try
             {
-                _sceneLoader.Load(sceneId, loadMode);
+                var task = _sceneLoader.LoadAsync(sceneId, loadMode);
+                if (task is null)
+                {
+                    throw new InvalidOperationException("ISceneLoader.LoadAsync must not return null.");
+                }
+
+                await task;
             }
             finally
             {
@@ -33,14 +40,20 @@ namespace FloatingIslandsRpg.Application.Scenes
             }
         }
 
-        public void UnloadScene(SceneId sceneId)
+        public async Task UnloadSceneAsync(SceneId sceneId)
         {
             ValidateSceneId(sceneId);
 
             BeginTransition();
             try
             {
-                _sceneLoader.Unload(sceneId);
+                var task = _sceneLoader.UnloadAsync(sceneId);
+                if (task is null)
+                {
+                    throw new InvalidOperationException("ISceneLoader.UnloadAsync must not return null.");
+                }
+
+                await task;
             }
             finally
             {

@@ -1,9 +1,11 @@
+using System.Threading.Tasks;
+
 namespace FloatingIslandsRpg.Application.Scenes
 {
     public interface ISceneLoader
     {
-        void Load(SceneId sceneId, SceneLoadMode loadMode);
+        Task LoadAsync(SceneId sceneId, SceneLoadMode loadMode);
 
-        void Unload(SceneId sceneId);
+        Task UnloadAsync(SceneId sceneId);
     }
 }
