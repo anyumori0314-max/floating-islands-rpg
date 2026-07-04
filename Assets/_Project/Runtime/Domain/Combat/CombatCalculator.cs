@@ -55,14 +55,14 @@ namespace FloatingIslandsRpg.Domain.Combat
 
         public static bool ResolveHit(double hitChance, double randomRoll)
         {
-            if (hitChance < 0.0 || hitChance > 1.0)
+            if (double.IsNaN(hitChance) || double.IsInfinity(hitChance) || hitChance < 0.0 || hitChance > 1.0)
             {
-                throw new ArgumentOutOfRangeException(nameof(hitChance), hitChance, "HitChance must be between 0.0 and 1.0.");
+                throw new ArgumentOutOfRangeException(nameof(hitChance), hitChance, "HitChance must be a finite value between 0.0 and 1.0 (inclusive).");
             }
 
-            if (randomRoll < 0.0 || randomRoll > 1.0)
+            if (double.IsNaN(randomRoll) || double.IsInfinity(randomRoll) || randomRoll < 0.0 || randomRoll >= 1.0)
             {
-                throw new ArgumentOutOfRangeException(nameof(randomRoll), randomRoll, "RandomRoll must be between 0.0 and 1.0.");
+                throw new ArgumentOutOfRangeException(nameof(randomRoll), randomRoll, "RandomRoll must be a finite value between 0.0 (inclusive) and 1.0 (exclusive).");
             }
 
             return randomRoll < hitChance;

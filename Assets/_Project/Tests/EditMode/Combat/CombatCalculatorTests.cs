@@ -179,15 +179,48 @@ namespace FloatingIslandsRpg.Tests.EditMode.Combat
             Assert.IsTrue(isHit);
         }
 
-        [TestCase(0.5, 0.5)]
-        [TestCase(0.5, 0.6)]
-        public void ResolveHit_RollAtOrAboveChance_ReturnsFalse(double hitChance, double randomRoll)
+        [Test]
+        public void ResolveHit_RollAboveChance_ReturnsFalse()
         {
             // Act
-            var isHit = CombatCalculator.ResolveHit(hitChance, randomRoll);
+            var isHit = CombatCalculator.ResolveHit(hitChance: 0.5, randomRoll: 0.6);
 
             // Assert
             Assert.IsFalse(isHit);
+        }
+
+        [Test]
+        public void ResolveHit_WhenRollEqualsHitChance_ReturnsFalse()
+        {
+            // Act
+            var isHit = CombatCalculator.ResolveHit(hitChance: 0.5, randomRoll: 0.5);
+
+            // Assert
+            Assert.IsFalse(isHit);
+        }
+
+        [TestCase(0.0)]
+        [TestCase(0.25)]
+        [TestCase(0.999)]
+        public void ResolveHit_ZeroHitChance_AlwaysMissesForValidRoll(double randomRoll)
+        {
+            // Act
+            var isHit = CombatCalculator.ResolveHit(hitChance: 0.0, randomRoll: randomRoll);
+
+            // Assert
+            Assert.IsFalse(isHit);
+        }
+
+        [TestCase(0.0)]
+        [TestCase(0.25)]
+        [TestCase(0.999)]
+        public void ResolveHit_OneHundredPercentHitChance_AlwaysHitsForValidRoll(double randomRoll)
+        {
+            // Act
+            var isHit = CombatCalculator.ResolveHit(hitChance: 1.0, randomRoll: randomRoll);
+
+            // Assert
+            Assert.IsTrue(isHit);
         }
 
         [TestCase(-0.1)]
@@ -198,12 +231,60 @@ namespace FloatingIslandsRpg.Tests.EditMode.Combat
             Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(invalidHitChance, 0.5));
         }
 
-        [TestCase(-0.1)]
-        [TestCase(1.1)]
-        public void ResolveHit_RandomRollOutOfRange_ThrowsArgumentOutOfRangeException(double invalidRoll)
+        [Test]
+        public void ResolveHit_HitChanceNaN_ThrowsArgumentOutOfRangeException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(0.5, invalidRoll));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(double.NaN, 0.5));
+        }
+
+        [Test]
+        public void ResolveHit_HitChancePositiveInfinity_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(double.PositiveInfinity, 0.5));
+        }
+
+        [Test]
+        public void ResolveHit_HitChanceNegativeInfinity_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(double.NegativeInfinity, 0.5));
+        }
+
+        [Test]
+        public void ResolveHit_RandomRollOutOfRange_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(0.5, -0.1));
+        }
+
+        [Test]
+        public void ResolveHit_RandomRollOne_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(0.5, 1.0));
+        }
+
+        [Test]
+        public void ResolveHit_RandomRollNaN_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(0.5, double.NaN));
+        }
+
+        [Test]
+        public void ResolveHit_RandomRollPositiveInfinity_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(0.5, double.PositiveInfinity));
+        }
+
+        [Test]
+        public void ResolveHit_RandomRollNegativeInfinity_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CombatCalculator.ResolveHit(0.5, double.NegativeInfinity));
         }
 
         [Test]
