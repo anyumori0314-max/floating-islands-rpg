@@ -1,7 +1,7 @@
 # PROJECT.md
 
 > floating-islands-rpg の設計方針・スコープ・実装タスクを一元管理するドキュメント。
-> 最終更新: 2026-07-05 (T-013〜T-017完了、およびCodex第三者レビュー指摘[Major4件・Minor1件]対応(Composition Root新設等)を反映。`feature/presentation-gameplay-slice`ブランチ、`main`へは未マージ・未コミット)
+> 最終更新: 2026-07-05 (T-018〜T-020完了に対するCodex最終再レビュー残存Major1件[BattleSceneInstallerのScene境界不明瞭なコンポーネント取得]への対応を反映。`feature/t018-t020`ブランチ、`main`へは未マージ・未コミット。Codex再レビュー前)
 
 ---
 
@@ -89,7 +89,7 @@
 | Battle | 戦闘専用シーン。フィールド/ダンジョンSceneに対してAdditiveロードする(4.設計「Scene構成」参照) |
 | GameClear | ゲームクリア画面 |
 
-**現状(2026-07-05更新)**: `Title`/`Village`/`Battle`/`GameClear`の4Sceneが`Assets/_Project/Scenes/`に実体として作成済み(Title/GameClearはT-016/T-017、Villageは配線検証用の最小スキャフォールド[NPC1体、T-018の完了条件は未達]、BattleはT-015の本番配線用に作成)。`Field`/`Dungeon`は未作成(T-019/T-020で対応予定)。旧`Assets/Scenes/SampleScene.unity`はAsset自体を保持しているが、Build Settingsからは除外済み(下記「Build Settings」参照)。
+**現状(2026-07-05更新)**: `Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`の正式6Sceneすべてが`Assets/_Project/Scenes/`に実体として作成済み(Title/GameClearはT-016/T-017、VillageはT-018でNPC3体+フィールド接続へ拡張済み、FieldはT-019で新規作成、DungeonはT-020で新規作成、BattleはT-015作成・T-019でAdditiveロード対応)。旧`Assets/Scenes/SampleScene.unity`はAsset自体を保持しているが、Build Settingsからは除外済み(下記「Build Settings」参照)。
 
 ### プレイヤー操作
 - 新Input System(`InputSystem_Actions.inputactions` が既定生成済み)を用いた移動・決定・キャンセル・メニュー呼び出し。
@@ -334,15 +334,56 @@ Assets/
 - **遷移失敗時のUI復旧**: `TitleScreenController`/`GameResultScreenController`に`CompleteTransition()`/`FailTransition()`を追加した。各Scene Installer(`TitleSceneInstaller`, `GameClearSceneInstaller`)は、`SceneTransitionUseCase.TransitionToAsync`呼び出しを`try/catch/finally`で包み、例外は`Debug.LogException`でログへ残したうえで(握りつぶさない)、`finally`で成功時`CompleteTransition()`・失敗時`FailTransition()`を必ず呼び出す。`FailTransition()`は遷移中フラグを解除しボタンを再度押せる状態へ戻す。非同期処理の実体(`TransitionAsync`)はTaskを返すprivateメソッドとして分離し、Unityイベント購読口(`OnNewGameRequested`等)のみを`async void`とした。`BattleUIController`については、`ShowResult()`が`BattleEnded`イベント発火(≒Scene遷移開始)より前に同期的に完了しているため、GameClearへの遷移が失敗してもBattle画面自体の表示状態(結果パネル・Attackボタン無効化)は元々破綻しない設計であることをテストで確認し、追加のController APIは設けていない。
 - **Locatorの用途は変更していない**: `GameCompositionRootLocator.EnsureRoot()`はScene Installerからのみ呼び出す用途のまま維持し、任意のControllerが直接サービスを取得できるAPIは追加していない。static可変状態・Singleton公開も引き続き行っていない。
 
-### Build Settings(Codex第三者レビューMajor 4指摘、および最終再レビュー指摘対応)
+### 村エリア・フィールド・ダンジョン本実装(T-018〜T-020で作成済み)
+- **共通の設計判断(T-019着手時に決定)**: PROJECT.md 4.設計「Scene構成」は、Battle Sceneをフィールド/ダンジョンSceneに対して**Additiveロード**する設計を承認済みの仕様として定めている。T-015時点ではField/Dungeonが未作成だったため、Battle Sceneは暫定的にSingleロードで実装されていたが、T-019着手時にこの設計上の負債を解消し、Battle SceneのロードモードをField/Dungeonからは**Additive**、GameClearへは引き続き**Single**に切り替えた(`SceneTransitionUseCase`/`ISceneLoader`(T-009)のAPI自体は変更なし。呼び出し側が`SceneLoadMode`を使い分けるのみ)。
+- **`GameServices.PendingBattle`(`PendingBattleContext`、新設)**: Field/DungeonSceneInstallerがAdditive Battleロード直前に設定する一時的なコンテキスト(`ReturnSceneId`、`IsBossEncounter`)。`BattleSceneInstaller`が戦闘終了時にこれを消費し、(1)`IsBossEncounter=false`かつ`PlayerVictory`ならBattle Sceneをアンロードしてフィールド/ダンジョンへ復帰、(2)それ以外(ボス勝利、または通常/ボス問わず敗北)は既存どおり`SceneId.GameClear`へSingle遷移する。`New Game`/`Continue`(`TitleSceneInstaller`)でも`LastBattleOutcome`/`RematchSnapshot`と同様に明示的にクリアする。static状態・Service Locatorは使用していない(`GameServices`のインスタンスプロパティ)。
+- **`FieldActivityGate`(Presentation、新設)**: Additive Battle中、フィールド/ダンジョン側のCamera(`FollowCamera`ごと)・AudioListener・EventSystem・`PlayerMovement`・`FieldEncounterController`を`Pause()`で無効化し、`Resume()`で復帰させる。4.設計「Scene構成」の「戦闘中はフィールド/ダンジョン側の入力受付・カメラ制御を停止する」「AudioListener/EventSystemの重複禁止」に対応する。
+- **`FieldEncounterController`(Presentation、新設)**: プレイヤーTransformの移動距離を`Update()`で累積し、一定距離(`_distancePerCheck`)ごとに`IRandomSource.NextDouble()`(T-008で定義済み、本番は`SystemRandomSource`(T-013時点で導入済み)をComposition層が注入)で確率判定してランダムエンカウントを発生させる(3.仕様「フィールド探索」「エンカウント方式」、シンボルエンカウントではない)。Field/Dungeon双方で同一コンポーネントを再利用し、責務を重複実装していない。
+- **`SceneTransitionTrigger`(Presentation、新設)**: プレイヤーの接触で設定済み`SceneId`/`SceneLoadMode`へのScene遷移を要求するC#イベント(`TransitionRequested`)を公開するトリガー。実際の遷移(T-009経由)はScene Installer側の責務とし、遷移失敗時は`AllowRetry()`で再度反応可能な状態へ戻す(Title/GameClearの`FailTransition()`と同様の考え方)。Village→Field、Field→Village/Dungeon、Dungeon→Fieldの接続に使用する。
+- **`BossEncounterTrigger`(Presentation、新設)**: ダンジョン最奥のボス部屋入口に配置し、プレイヤー接触で確定的に(確率judgment なしで)`BossEncounterTriggered`イベントを発火する。`FieldEncounterController`のランダム判定とは独立したコンポーネントとし、責務を混在させていない。
+- **T-018 村エリアの実装**: 既存の最小`Village.unity`(NPC1体)を拡張し、`Npc.prefab`(Capsule見た目+SphereCollider(trigger)+`NpcInteractable`)を新規作成、既存Villagerに加えElder・Merchantの計3体のNPCを配置(3.仕様#2「NPCが3体以上配置」に対応、対話内容はプレースホルダー文言)。`VillageSceneInstaller`が`SceneTransitionTrigger`(Field行き、Single)を購読するよう拡張。PlayModeテスト7件追加(`SceneTransitionTriggerTests`4件、`VillageSceneInstallerTests`+3件)。
+- **T-019 フィールドエリアの実装**: 正式`Field.unity`をUnity MCPで新規作成(Ground・Player・`FieldEncounterController`・`FieldActivityGate`・Village行き/Dungeon行きの`SceneTransitionTrigger`・`FieldSceneInstaller`)。通常敵エンカウントはプレースホルダー1種(既存`BattleSceneInstaller`の敵ステータスを`RegularEncounterEnemyStats`として維持、値は変更していない)。PlayModeテスト17件追加(`FieldEncounterControllerTests`6件、`FieldActivityGateTests`2件、`FieldSceneInstallerTests`5件、`BattleSceneInstallerTests`+4件)。
+- **T-020 ダンジョンの実装**: 正式`Dungeon.unity`をUnity MCPで新規作成(T-019と同じ`FieldEncounterController`/`FieldActivityGate`/`SceneTransitionTrigger`(Field行き)を再利用し、最奥に`BossEncounterTrigger`を配置)。ボス用プレースホルダー`BossEncounterEnemyStats`(HP40/攻撃8/防御4/敏捷3、レベル5)を`BattleSceneInstaller`に追加し、通常敵`RegularEncounterEnemyStats`(HP12)より明確に強いステータスとした(2.スコープ#8「通常敵より明確に強いステータス」に対応。実データMasterData Assetは引き続き未作成で、T-012スコープ外の据え置き)。`DungeonSceneInstaller`が`FieldEncounterController`(通常戦)・`BossEncounterTrigger`(ボス戦、`PendingBattle.IsBossEncounter=true`)双方をAdditive Battleへ橋渡しする。PlayModeテスト10件追加(`BossEncounterTriggerTests`4件、`DungeonSceneInstallerTests`6件)。
+- **T-018〜T-020合計の新規PlayModeテスト**: 34件(7+17+10)。
+- **手動確認(Unity Editor実機Play Mode)**: (1) Village上でVillager/Elder/Merchant全3体との会話開始〜終了、PlayerMovement無効化/復帰を確認。(2) Village→(FieldEntranceトリガー接触)→Field実遷移を確認。(3) Field上でエンカウントイベントを発火させ、Battle SceneがAdditiveロードされる(Fieldはアンロードされず併存)ことを`get_loaded_scenes`で確認、`FieldActivityGate.Pause()`によりFieldのCamera/AudioListener/PlayerMovementが無効化されることを確認、Attack操作で通常敵に勝利しBattleがアンロードされ、Field側のCamera/AudioListener/EventSystem/PlayerMovementが復帰することをすべて確認(スクリーンショットあり)。(4) Field↔Village、Field→Dungeonの`SceneTransitionTrigger`による実遷移を確認。(5) Dungeon上でBossEncounterTriggerに接触しBattleがAdditiveロードされ、ボス用プレースホルダー(HP40/40)が表示されることを確認。弱いプレースホルダーPlayerStatsでの敗北時にGameClear(GAME OVER表示、Retry/Titleボタンあり)へSingle遷移すること、強いテスト用PlayerStatsでの勝利時にGameClear(GAME CLEAR!表示、Titleボタンのみ)へSingle遷移すること(=Dungeonへは戻らない)の両方を確認。(6) Dungeon↔Fieldの`SceneTransitionTrigger`による実遷移を確認(スクリーンショットあり)。
+- **観測されたConsoleノイズ(プロジェクトコード起因ではないと判断)**: 手動確認中、Additive Battleロード直後に`The referenced script (Unknown) on this Behaviour is missing!`という警告と、`GameCompositionRoot.Services`/`BattleUIController`内部状態が一時的にnullになる事象を1回観測した。直後に全6正式Sceneを`manage_scene validate`、および全ロード済みScene・Prefabインスタンスに対する`GetComponents<Component>() == null`の直接スキャンを実施した結果はいずれも0件で、Scene/Prefabアセット自体は健全であることを確認した。再度、MCPツール呼び出しの間隔を空けて同じ手順を再実行したところ再現せず(Additive/Unload/Resumeが正常に完了し、`GameServices`/`_session`等の状態も一貫していた)、既存の「既知の問題」に記載されたMCP自動化ツールによる高速なPlay Mode操作に起因する一過性の事象と判断した(詳細は「既知の問題」に追記)。
+- **観測された例外(1回、手動確認中)**: Dungeon→Field→Dungeonの`SceneTransitionTrigger`を人間の歩行では起こり得ない速さ(2箇所のトリガーへ連続してテレポートするテスト手順)で連続作動させた際、`SceneTransitionUseCase`の再入防止ガードにより`InvalidOperationException: A scene transition is already in progress.`が送出された(ログに記録され、握りつぶされていない)。直後の状態確認で、Sceneのロード状態・`GameServices`(`PendingBattle`/`LastBattleOutcome`とも null)に不整合がないことを確認済みであり、再入防止ガードが意図通りに機能した結果と判断した。通常の徒歩移動ではトリガー間の移動に数秒以上を要するため、実プレイでは発生しない想定。
+
+### T-018〜T-020 Codex第三者レビュー指摘対応(Major1件・Minor4件、本セッションで対応完了)
+- **Major: Battle Sceneアンロード失敗時にField/Dungeon側が復旧しない**: `BattleSceneInstaller.ReturnToFieldAsync`(旧実装)は`UnloadSceneAsync(Battle)`成功時のみ`ResumeReturnScene()`(全`FieldActivityGate`の`Resume()`)を呼んでおり、アンロードが例外を送出した場合は`catch`で`Debug.LogException`するのみで、Field/Dungeon側のPlayer入力・Camera・AudioListener・EventSystem・`FieldEncounterController`が無効化されたまま復旧しない欠陥があった。
+  - **修正方式**: `OnBattleEnded`の先頭で`PendingBattleContext`をローカル変数へ退避してから`_services.PendingBattle = null`で即座にクリアする(今回の戦闘の文脈が次回の戦闘・Retry・Title遷移へ残らないようにする)。`ReturnToFieldAsync`を`try/catch/finally`化し、アンロードの成功可否を示す`bool unloaded`ローカル変数で分岐する。`finally`内で必ず`ResumeReturnScene()`を(成功・失敗を問わず)1回だけ呼び出し、Field/Dungeon側のPlayer入力・Camera・AudioListener・EventSystem・エンカウント判定を復旧させる。アンロードが失敗した場合(Battle Sceneがまだ読み込まれたまま)は、`ResumeReturnScene()`の直前に`DisableBattlePresentation()`を呼び、Battle Scene自身のCamera・AudioListener・EventSystemを無効化してから復帰元を有効化することで、両Scene分のCamera/AudioListener/EventSystemが同時に有効化される競合を防ぐ。Battle側のCamera/AudioListener/EventSystemの参照は`_battleCamera`/`_battleAudioListener`/`_battleEventSystem`として`[SerializeField]`化されており、`Battle.unity`のInspectorでBattle Scene内の対象へ明示的に設定する(グローバル検索は行わない。詳細は4.設計「T-019/T-020 Codex最終再レビュー残存Major対応」参照)。`UnityEngine.SceneManagement.SceneManager`を本層(Composition)から直接呼び出してはいない(T-009の方針「SceneManagerの使用は`UnitySceneLoader`のみ」を維持)。例外は`Debug.LogException`で記録し、握りつぶしていない。ボス勝利・敗北時のGameClearへのSingle遷移ロジック(`TransitionAsync`)は変更していない。
+  - static可変状態・Service Locator・新規Packageは追加していない。
+- **Minor: ボス勝利テストの乱数依存**: `BattleSceneInstallerTests.BattleEnded_BossEncounterVictory_TransitionsToGameClearInstead`が実際の`SystemRandomSource`(本番用乱数)に依存し、`Assert.Inconclusive`で敗北時を逃していたため、将来的にInconclusive/flakyになるリスクがあった。`BattleUIController.BattleEnded`イベントを反射(reflection)で直接`Invoke(BattleOutcome.PlayerVictory)`する方式に置き換え、`BattleSession`・`SystemRandomSource`・Attackクリックを一切経由しない完全に決定的なテストとした(本番コードへテスト専用分岐は追加していない)。同じ手法で`BattleEnded_RegularEncounterVictory_UnloadSucceeds_ResumesFieldGateAndClearsPendingBattle`、および新規の敗北系テスト2件も決定的化した。
+- **Minor: git diff --checkの実態**: `git diff --check`は`Assets/_Project/Scenes/Village.unity`内の6箇所(`m_Name: `/`value: `という空文字列フィールド)でtrailing whitespaceを検出するが、いずれもUnity Editor/Unity MCPの正規保存処理(直接編集なし)によって生成されるYAMLの仕様であり、Unity公式保存処理での再保存前後で全く同じ行番号・内容のまま変化しないことを確認した。`.cs`/`.meta`/`.prefab`/`.unity`/`.asset`のうちUnity生成ファイル種別(`*.meta`/`*.prefab`/`*.unity`/`*.asset`)を除外した`git diff --check -- . ":(exclude,glob)**/*.meta" ":(exclude,glob)**/*.prefab" ":(exclude,glob)**/*.unity" ":(exclude,glob)**/*.asset"`は0件(手書きファイルは問題なし)。Unity生成YAMLの空白は手動修正していない。
+- **Minor: EditorSettings.assetの意図しない差分**: `m_EnterPlayModeOptions`が`0`→`1`になっていた差分を`git restore -- ProjectSettings/EditorSettings.asset`で復元した。ただし、本セッションでUnity Editorの`Play`操作を行うたびにUnity Editor自身が同ファイルへ同じ差分を再書き込みする挙動を確認した(Unity 6のEnter Play Mode Options機能に付随するEditor側の自動書き込みであり、本プロジェクトのコード変更によるものではない)。最終確認直前に再度`git restore`を実行し、差分なしの状態でこのセッションを終える(詳細は「Gitスコープ確認」参照)。
+- **Minor: コメントの文字化け**: `PendingBattleContext.cs`/`BattleSceneInstaller.cs`/`FieldActivityGate.cs`/`BossEncounterTrigger.cs`の4ファイルをバイト単位で調査した結果、BOM無しの正しいUTF-8であり置換文字(U+FFFD)も存在しないことを確認した(`file`コマンド・16進ダンプ・`Read`ツール表示のいずれでも文字化けは再現せず)。実際の破損を再現できなかったが、レビューツール側のエンコーディング解釈に依存するリスクを排除するため、指摘の対象4ファイルの日本語コメントをすべてASCII英語コメントへ置き換えた(本番ロジックは無変更)。置き換え後、4ファイルは`file`コマンドで`ASCII text`と判定される。
+- **新規・更新PlayModeテスト**: `BattleSceneInstallerTests`が16件(既存10件から、決定的化2件+失敗系新規5件+敗北系新規2件-旧Inconclusive依存1件などの差し引きで6件純増)。全体では10件純増(T-018〜T-020完了時点の152件→158件)。
+- **T-018〜T-020(Codex対応込み)最終PlayModeテスト内訳**: T-018関連7件、T-019関連17件、T-020関連10件、Codex対応で追加・更新した`BattleSceneInstallerTests`関連6件純増、`FakeSceneLoader`へ`UnloadFailWith`追加(テスト専用インフラ、本番コード非該当)。
+- **全体テスト実行結果(Codex対応後)**: 全EditMode 225件(変更なし)、全PlayMode 158件、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0, inconclusive 0)を3回連続実行で確認。プロジェクトコード由来のConsole Error/Warning 0件、Missing Script/Broken Prefab 0件(正式6Scene全件`manage_scene validate`で確認)。
+- **手動確認(Codex対応後、実機Play Mode)**: Village→Field実遷移、Field上でのAdditive Battle往復(2戦連続、状態破損なし)、Dungeon上でのボス戦勝利→GameClear(GAME CLEAR!表示)、ボス戦敗北→GameClear(GAME OVER表示)をすべて確認。アンロード失敗時の復旧は、実際のSceneManagerを意図的に破壊するリスクがあるため実機再現は行わず、`FakeSceneLoader.UnloadFailWith`による自動テスト(5件)を正式な確認方法とした。
+- **手動確認中に観測した一過性の事象(本セッション)**: 複数のScene遷移トリガーへ人間の歩行では不可能な速さで連続テレポートさせた際、`SceneTransitionUseCase`の再入防止ガードが例外を送出し、それに伴いUnity Editorの「Error Pause」機能がPlay Modeを自動一時停止する事象を観測した。一時停止中は`Time.frameCount`が進行せず、この間の物理トリガー再判定も行われないため、一時停止解除後に想定外のAdditive Battle二重ロード(BattleUI・Camera・AudioListener・EventSystemの重複)が1回発生した。`manage_editor stop`でPlay Modeを終了し、Scene資産(`Dungeon.unity`等)を`manage_scene validate`で確認した結果は0件(Play Mode終了で変更は破棄され、資産は無傷)。落ち着いた操作間隔(1操作ごとにテレポート前後の状態を確認)で同じ手順を再実行したところ再現せず、正常に動作した。人間の通常の連続的な移動操作(WASD入力)ではこの手順自体が発生しないため、実プレイでは再現しないと判断した。
+
+### T-019/T-020 Codex最終再レビュー残存Major対応(本セッションで対応完了)
+- **問題**: 前回対応の`BattleSceneInstaller.DisableBattlePresentation`用の`_battleCamera`/`_battleAudioListener`/`_battleEventSystem`が、`Start()`内で`FindFirstObjectByType<Camera>()`/`<AudioListener>()`/`<EventSystem>()`というグローバル検索によって取得されていた。Additiveロード中はField/DungeonとBattleが同時に存在するため、たまたまField/Dungeon側が`FieldActivityGate.Pause()`で無効化されている間に限りBattle側を正しく拾えていたに過ぎず、取得範囲がBattle Sceneに保証されていなかった。
+- **採用した修正方式**: `_battleCamera`/`_battleAudioListener`/`_battleEventSystem`を`[SerializeField] private`フィールドへ変更し、`Start()`内の`FindFirstObjectByType`呼び出しをすべて削除した。Battle Scene内の実オブジェクトへの参照はUnity MCP(`SerializedObject`経由、Scene YAML直接編集なし)で`Battle.unity`の`BattleSceneInstaller`コンポーネントへ明示的に設定した。グローバル検索・`FindAnyObjectByType`・復帰元Sceneを含む検索は一切行っていない。
+- **参照不足時の挙動**: `ValidateBattlePresentationReferences()`を新設し、`Start()`内(既存の`BattleUIController`未検出チェックの直後)で3参照それぞれの`null`チェックを行い、不足しているものごとに`Debug.LogError`で対象フィールド名を含む明確なエラーを出す。参照が不足していても`NullReferenceException`は発生させず、グローバル検索による補完も行わない(`DisableBattlePresentation`側の既存null チェックがそのまま安全に働く)。
+- **Field/Dungeon側を誤取得しない根拠**: `BattleSceneInstaller.cs`内に`Camera`/`AudioListener`/`EventSystem`型に対する`FindFirstObjectByType`系呼び出しが一切存在しないことをコードレビューで確認済み。加えて、Field側Camera/AudioListener/EventSystemとBattle側Camera/AudioListener/EventSystemを別々のGameObjectとして同時に配置した状態でアンロード失敗を発生させ、Battle側のみが無効化されFieldまたはDungeon側は`FieldActivityGate.Resume()`により最終的に有効化されることをテストで確認した。さらに、`FieldActivityGate`(＝Field/Dungeon側の目印)を一切配置せず、Battle側参照も未設定のまま、シーン内に無関係な`Camera`を1つだけ配置した状態でアンロード失敗を発生させても、その無関係な`Camera`が一切無効化されないことを確認するテストを追加した(グローバル検索が存在すれば唯一発見されうる対象がまさにこの無関係な`Camera`であるため、直接的な回帰テストとなっている)。
+- **新規・更新PlayModeテスト**: `BattleSceneInstallerTests`が16件→20件(純増4件: Field/Dungeon双方でのBattle側限定無効化+復帰元側復旧の統合テスト2件、無関係なCameraが誤って無効化されないことを確認するテスト1件、参照不足時に安全にエラーを出すことを確認するテスト1件)。
+- **全体テスト実行結果**: 全EditMode 225件(変更なし)、全PlayMode 162件、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0, inconclusive 0)を3回連続実行で確認。プロジェクトコード由来のConsole Error/Warning 0件、Missing Script/Broken Prefab 0件(正式6Scene全件`manage_scene validate`で確認)。
+- **手動確認**: Field通常戦勝利→Field復帰(Camera/AudioListener/EventSystem/PlayerMovement復旧、`_battleCamera`等がBattle Scene内の実オブジェクトへ正しく解決されていることを実行時に確認)、Dungeon通常戦勝利→Dungeon復帰、Dungeonボス戦勝利→GameClear(GAME CLEAR!)、ボス戦敗北→GameClear(GAME OVER)をすべて実機Play Modeで再確認済み。アンロード失敗時の復旧は、実際のSceneManagerを意図的に破壊するリスクがあるため実機再現は行わず、自動テスト(9件: 既存5件+新規4件)を正式な確認方法とした。
+- **Codex再レビュー前の状態**。
+
+### Build Settings(Codex第三者レビューMajor 4指摘、最終再レビュー指摘、およびT-019/T-020のScene追加対応)
 - `ProjectSettings/EditorBuildSettings.asset`を、Unity MCP(`manage_build` action=scenes)経由で以下の順序へ更新した(直接テキスト編集はしていない)。
   - Build Index 0: `Title`
   - Build Index 1: `Village`
   - Build Index 2: `Battle`
   - Build Index 3: `GameClear`
-- `SampleScene`はBuild Settingsから除外した(Build実行時に正式なTitleから開始されるようにするため)。Field/Dungeonは未作成のため登録していない。
+  - Build Index 4: `Field`(T-019で追加)
+  - Build Index 5: `Dungeon`(T-020で追加)
+- `SampleScene`はBuild Settingsから除外した(Build実行時に正式なTitleから開始されるようにするため)。
 - `SampleScene.unity`のAsset自体は5.規約・7.要承認事項の既定方針により削除していない(Build対象外になっただけで、Assetとしては保持)。
-- `SceneNameCatalog`(T-003)が保持するScene名(`Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`)とBuild Settings登録パスのScene名は一致している。
+- `SceneNameCatalog`(T-003)が保持するScene名(`Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`)とBuild Settings登録パスのScene名は一致している(正式6Sceneすべてが登録済み)。
 
 ### Prefab方針
 - プレイヤー、NPC、敵、UIパネル等は原則Prefab化し、Sceneへの直置きを避ける。
@@ -448,7 +489,13 @@ Presentation と Infrastructure は相互に参照しない。
   - 新規・更新PlayModeテスト20件(`TitleSceneInstallerTests`+5、`BattleSceneInstallerTests`+3、`GameClearSceneInstallerTests`全面改訂9件、`TitleScreenControllerTests`+3、`GameResultScreenControllerTests`+5)。全PlayMode 118件(既存98+新規20)。
   - **手動確認(実機Play Mode)**: 保存地点=Village・弱ステータスの実セーブ→Continue→Village実遷移(HP25/25正しく反映)→Battleへ実遷移(RematchSnapshot作成: CurrentSceneId=Battle, HP=25で一致確認)→Attack→Victory→GameClear実遷移(Clear表示)→Title実遷移(LastBattleOutcomeクリア確認)。別途、保存地点=Village・低HPセーブ→Continue→Village→Battle→Defeat→GameOver表示(古い結果の残留なし)→**Retry→Battle実遷移(保存地点Villageではない)を確認、HP 8/8(0ではない)で再戦開始**を確認。遷移失敗時のUI復旧は、実SceneManagerを意図的に破壊するのは危険なため、自動テスト(FakeSceneLoaderによる例外注入、6件)で検証した。
   - **全体テスト実行結果**: 全EditMode 225件、全PlayMode 118件、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)を3回連続実行で確認。プロジェクトコード由来のConsole Error/Warning 0件、Missing Script/Broken Prefab 0件(全4正式Scene確認)。
-- **ゲーム実装**: T-003〜T-012(Scene識別子、キャラクターステータス計算、戦闘計算・進行、経験値・レベルアップ計算、クエスト状態管理、Scene遷移、セーブ/ロード、マスターデータ定義)に加え、T-013〜T-017でPresentation層の実装コード・Composition Root・Title/Village/Battle/GameClear Scene(Village/Battleは最小スキャフォールド)・EditMode/PlayModeテストが追加された。Field/Dungeon Sceneの実体、および実データAsset(敵/アイテム/装備・開始時ステータス等)は未実装(T-018以降で対応予定)。
+- **T-018 村エリアの実装(完了)**: `Village.unity`にNPC3体(Villager/Elder/Merchant、`Npc.prefab`ベース)とField行き`SceneTransitionTrigger`を追加。`VillageSceneInstaller`を拡張。PlayModeテスト7件(`SceneTransitionTriggerTests`4件、`VillageSceneInstallerTests`+3件)。
+- **T-019 フィールドエリアの実装(完了)**: 正式`Field.unity`を新規作成。`FieldEncounterController`によるランダムエンカウント、`FieldActivityGate`によるAdditive Battle中の入力/カメラ停止、`FieldSceneInstaller`を新規実装。Battle SceneのロードモードをField/Dungeonに対してAdditiveへ変更(4.設計「村エリア・フィールド・ダンジョン本実装」参照)。PlayModeテスト17件(`FieldEncounterControllerTests`6件、`FieldActivityGateTests`2件、`FieldSceneInstallerTests`5件、`BattleSceneInstallerTests`+4件)。
+- **T-020 ダンジョンの実装(完了)**: 正式`Dungeon.unity`を新規作成。T-019の`FieldEncounterController`/`FieldActivityGate`を再利用し、最奥に`BossEncounterTrigger`とボス用プレースホルダー`BossEncounterEnemyStats`(通常敵より明確に強いステータス)を配置した`DungeonSceneInstaller`を新規実装。ボス勝利時のみGameClearへ、通常戦勝利時はDungeonへ復帰する分岐を`GameServices.PendingBattle`で実現。PlayModeテスト10件(`BossEncounterTriggerTests`4件、`DungeonSceneInstallerTests`6件)。
+- **T-018〜T-020 合計(初回実装セッション)**: 新規PlayModeテスト34件(7+17+10)。全EditMode 225件(変更なし)、全PlayMode 152件(既存118+新規34)、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)を3回連続実行で確認。手動確認(Village全NPC会話、Village→Field、Field上でのAdditive Battle往復、Field↔Village/Dungeon遷移、Dungeon上でのボス戦勝敗分岐、Dungeon↔Field遷移)はすべて実機Play Modeで確認済み(詳細・観測されたConsoleノイズ/例外の判断根拠は4.設計「村エリア・フィールド・ダンジョン本実装」参照)。
+- **T-018〜T-020 Codex第三者レビュー指摘対応(Major1件・Minor4件、対応完了)**: Major(Battle Sceneアンロード失敗時のField/Dungeon側復旧漏れ)、Minor(ボス勝利テストの乱数依存、git diff --checkの実態未報告、EditorSettings.assetの意図しない差分、コメントの文字化け候補)をすべて解消(詳細は4.設計「T-018〜T-020 Codex第三者レビュー指摘対応」参照)。`BattleSceneInstallerTests`が10件→16件(純増6件)、全体では152件→158件。全EditMode 225件・全PlayMode 158件、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0, inconclusive 0)を3回連続実行で確認。プロジェクトコード由来のConsole Error/Warning 0件、Missing Script/Broken Prefab 0件(正式6Scene全件`manage_scene validate`で確認)。手動確認(Village→Field、Field上でのAdditive Battle連戦、Dungeonボス戦勝利→GameClear、ボス戦敗北→GameOver)を実機Play Modeで再確認済み。アンロード失敗時の復旧はFakeSceneLoaderによる自動テスト(5件)を正式な確認方法とした(実SceneManager破壊を伴う実機再現は危険なため実施せず)。
+- **T-019/T-020 Codex最終再レビュー残存Major対応(対応完了)**: `BattleSceneInstaller`が`_battleCamera`/`_battleAudioListener`/`_battleEventSystem`をグローバル検索(`FindFirstObjectByType`)で取得しており、Additive中のField/Dungeon側コンポーネントを誤取得しうる状態だったのを解消。3参照を`[SerializeField]`化し、Unity MCP経由で`Battle.unity`へ明示的に設定した(詳細は4.設計「T-019/T-020 Codex最終再レビュー残存Major対応」参照)。`BattleSceneInstallerTests`が16件→20件(純増4件)、全体では158件→162件。全EditMode 225件・全PlayMode 162件、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0, inconclusive 0)を3回連続実行で確認。プロジェクトコード由来のConsole Error/Warning 0件、Missing Script/Broken Prefab 0件(正式6Scene全件`manage_scene validate`で確認)。手動確認(Field/Dungeon双方での通常戦勝利→復帰、Dungeonボス戦勝利→GameClear、ボス戦敗北→GameOver)を実機Play Modeで再確認済み。Codex再レビュー前の状態。
+- **ゲーム実装**: T-003〜T-012(Scene識別子、キャラクターステータス計算、戦闘計算・進行、経験値・レベルアップ計算、クエスト状態管理、Scene遷移、セーブ/ロード、マスターデータ定義)、T-013〜T-017(Presentation層の実装コード・Composition Root・Title/Village/Battle/GameClear Scene)に加え、T-018〜T-020でVillageの本実装・Field/Dungeon Sceneの新規実装・ランダムエンカウント/ボス戦・Additive Battle統合、およびそのCodex第三者レビュー指摘(第一回・最終再レビュー)対応が完了した。実データMasterData Asset(敵/アイテム/装備・開始時ステータス等)は引き続き未実装(T-021以降で対応予定、本セッションでは着手していない)。
 
 ### 完了済み
 - Unity 6 (6000.3.17f1) / URPの新規プロジェクトが作成済み。
@@ -484,11 +531,13 @@ Presentation と Infrastructure は相互に参照しない。
 - **T-008〜T-012 + Codex指摘対応 テスト実行結果**: Unity Editor Test Runnerで実行し、EditMode 225件(T-003〜T-007の112件+T-008 27件+T-009 17件+T-010 34件+T-012 35件)、PlayMode 24件(T-011)、合計249件。passed 249 / failed 0 / skipped 0、Console Error 0件・Warning 0件をユーザーが実行・確認済み。`ProjectSettings/EditorSettings.asset`の差分なしも確認済み。
 
 ### 未完了
-- Field/Dungeon Sceneの実体、および実データAsset(敵/アイテム/装備・開始時プレイヤーステータス等)は未実装(T-018以降で対応予定)。`Village.unity`は配線検証専用の最小スキャフォールド(NPC1体)であり、T-018の完了条件(NPC3体以上、Field接続)は満たしていない。
+- メインクエスト1本・サブクエスト2本の受注/進行/完了条件の実装(T-021/T-022で対応予定)。現状は`VillageSceneInstaller`が`MainQuest`を`NpcInteractable`へ注入するのみで、`Start()`以降の進行・完了処理は未実装。
+- 実際のマスターデータAsset(通常敵3種・ボス1体・アイテム・装備・開始時プレイヤーステータス等)は未実装(将来Task想定、推測での先行実装は行っていない)。フィールド/ダンジョンの敵・ボスは引き続きComposition層のプレースホルダー固定値(`RegularEncounterEnemyStats`/`BossEncounterEnemyStats`)。
+- 経験値獲得からのレベル再計算・ステータス反映(T-004/T-006とT-008/T-010の統合)は未実装。
 - CIの実行結果は本セッションでは未確認。
-- 経験値獲得からのレベル再計算・ステータス反映(T-004/T-006とT-008/T-010の統合)、実際のマスターデータAssetの作成は未実装(将来Task想定、推測での先行実装は行っていない)。
 - `Title.unity`/`GameClear.unity`のUIはPrefab化していない(Codex第三者レビューによりMVPでは必須ではないと判定済み。各Scene専用のため)。
 - 遷移失敗時のUI復旧は自動テスト(Fake ISceneLoaderによる例外注入)で検証済みだが、実際のSceneManagerレベルでの失敗(例: Build Settings不整合、Scene破損)を意図的に再現した実機確認はしていない(実Sceneを破壊する検証は危険なため見送った)。
+- Retry(GameClearから)は常にBattleへSingle遷移する既存仕様のまま(T-017)であり、Field/Dungeonへの復帰やPendingBattle(通常戦/ボス戦の別)は引き継がない。ボス戦・通常戦問わず、死亡時に何と戦っていたかに関係なく同一のフォールバック敵ステータスで再戦する制限が残っている(T-018〜T-020の完了条件には含まれないため今回は対応していない)。
 
 ### 既知の問題
 - (解消済み・記録として保持)過去セッションでUnity MCP用ツールが一時的に利用できず、GameObject削除をシーンYAMLの直接編集で行った回があった。現在はUnity MCP接続を再確認済みであり、5.規約「Unity MCP運用方針」により今後はSceneの直接テキスト編集を禁止し、MCP経由での変更を必須とする。
@@ -497,12 +546,17 @@ Presentation と Infrastructure は相互に参照しない。
 - Unity Test Framework(および同梱のUnity.PerformanceTesting)は、テスト実行時にそれ自体の内部ログとして`Exception`種別1件("Saving results to: ...")と`Warning`種別2件(`IPrebuildSetup`/`IPostBuildCleanup`実行ログ)をConsoleへ出力することがある。テスト対象コードの不具合ではなく、EditModeテストを実行した場合に付随するUnity側の既知の挙動(テスト自体はすべてPassed)。テスト実行前後でConsoleを確認し、実際のテスト結果(passed/failed/skipped)と合わせて判断する。
 - Composition Root導入セッションでの手動確認中、MCP経由で`manage_editor`のpause切替と`execute_code`を短時間に連続実行した際、`PlayerLoop internal function has been called recursively`というUnity Editor内部の警告と、スクリプト参照欠落を示すConsoleメッセージを1件ずつ観測した。直後に全4正式Scene(Title/Village/Battle/GameClear)を`manage_scene validate`した結果はいずれも0件(Missing Script/Broken Prefab)であり、プロジェクトコード・Asset側の永続的な不具合ではなく、MCP自動化ツールによる高速なPlay Mode操作に起因する一過性の事象と判断した。人間が通常操作でPlay Modeに出入りする分には発生しない想定。
 - `Assets/Screenshots/`はレビュー証跡(スクリーンショット)の保存先であり、コミット方針が定義されていないためコミット対象外とする(未追跡のまま維持、本番Asset・テストからは参照しない)。
+- T-019/T-020手動確認中、Additive Battleロード直後に`The referenced script (Unknown) on this Behaviour is missing!`という警告と`GameServices`/`BattleUIController`内部状態の一時的なnullを1回観測したが、直後の全6正式Scene`manage_scene validate`(0件)および全ロード済みComponentの直接null走査(0件)により、Scene/Prefabアセット自体の不具合ではないことを確認した。MCPツール呼び出し間隔を空けて同一手順を再実行したところ再現しなかった。既存の「MCP自動化ツールによる高速なPlay Mode操作に起因する一過性の事象」と同種と判断した(詳細は4.設計「村エリア・フィールド・ダンジョン本実装」参照)。
+- 同じくT-019/T-020手動確認中、2箇所の`SceneTransitionTrigger`へ人間の歩行では起こり得ない速さで連続テレポートさせた際に`InvalidOperationException: A scene transition is already in progress.`を1回観測したが、これは`SceneTransitionUseCase`の再入防止ガード(T-009で意図的に実装済み)が正しく機能した結果であり、直後の状態確認でScene/`GameServices`に不整合がないことを確認済み。通常の徒歩移動速度では再現しない想定。
+- Codex指摘対応セッションでの手動確認中、上記と同様の連続テレポートによる`InvalidOperationException`発生時に、Unity Editorの「Error Pause」機能がPlay Modeを自動的に一時停止する事象を観測した。一時停止中は`Time.frameCount`が進行せず物理トリガーの再判定も行われないため、一時停止解除直後にAdditive Battleが二重ロードされ、Console上に`There are 2 event systems`/`There are 2 audio listeners`という警告が一時的に出力された。`manage_editor stop`でPlay Modeを終了した時点でこの状態は破棄され、`Dungeon.unity`等のScene資産は`manage_scene validate`で0件(無傷)を確認済み。落ち着いた操作間隔で同じ手順を再実行したところ再現しなかった。人間の連続的なWASD移動操作ではテレポート自体が発生しないため、実プレイでは再現しないと判断した。
+- 本セッションでUnity Editorの`Play`操作を行うたびに、`ProjectSettings/EditorSettings.asset`の`m_EnterPlayModeOptions`が`0`から`1`へUnity Editor自身によって書き換えられる挙動を確認した(本プロジェクトのコード変更によるものではなく、Unity 6のEnter Play Mode Options機能に付随するEditor側の自動書き込み)。セッション終了直前に`git restore`で復元し、差分なしの状態を確認した(4.設計「T-018〜T-020 Codex第三者レビュー指摘対応」参照)。
 
 ### 次に行うこと
 - T-008〜T-012(`feature/gameplay-application-foundation`ブランチ)はPull Request #5を経て`main`へマージ済み(マージコミット`35ac111`)。
-- T-013〜T-017(`feature/presentation-gameplay-slice`ブランチ)は本セッションで完了。Codex第三者レビュー指摘(1回目: Major4件・Minor1件、2回目最終レビュー: Major2件・Minor2件)への対応もすべて完了。`main`へは未マージ・未コミット(commit/pushは本セッションでは行っていない)。
-- Codex再レビューが可能な状態(実装・テスト・手動確認・PROJECT.md更新が完了済み)。
-- 次のタスクは **T-018(村エリアの実装)**(T-013, T-014に依存、着手可能)。既存の最小`Village.unity`スキャフォールドを土台に、NPC3体以上への拡張とField接続を行う想定。
+- T-013〜T-017(`feature/presentation-gameplay-slice`ブランチ)はPull Request #6を経て`main`へマージ済み。
+- T-018〜T-020(`feature/t018-t020`ブランチ)は完了。実装・テスト・手動確認・PROJECT.md更新が完了済み。Codex第三者レビュー指摘(1回目: Major1件・Minor4件、最終再レビュー: 残存Major1件)への対応もすべて完了済み。`main`へは未マージ・未コミット(commit/pushは本セッションでは行っていない)。
+- Codex再レビューが可能な状態。
+- 次のタスクは**T-021(メインクエストの実装)**(T-007, T-009, T-020に依存、着手可能)。本セッションでは着手していない。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
 - `Assets/Scenes/SampleScene.unity` はAsset自体を保持する(削除しない)が、Build Settingsからは除外済み(正式なBuild開始SceneはTitle、4.設計「Build Settings」参照)。`Bootstrap`は現在のMVP正式Scene一覧には含めない(必要になった場合はPROJECT.md更新・承認後に別Taskで追加する)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
@@ -525,7 +579,7 @@ Presentation と Infrastructure は相互に参照しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画。T-001〜T-012は`main`にマージ済み(T-008〜T-012は`feature/gameplay-application-foundation`ブランチ、PR #5)。T-013〜T-017は`feature/presentation-gameplay-slice`ブランチで完了済み(`main`へは未マージ・未コミット)。次はT-018以降に進める状態。
+> 本タスク一覧はPhase 1以降の実装計画。T-001〜T-012は`main`にマージ済み(T-008〜T-012は`feature/gameplay-application-foundation`ブランチ、PR #5)。T-013〜T-017は`feature/presentation-gameplay-slice`ブランチ(PR #6)を経て`main`にマージ済み。T-018〜T-020は`feature/t018-t020`ブランチで完了済み(`main`へは未マージ・未コミット)。次はT-021以降に進める状態。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
@@ -547,9 +601,9 @@ Presentation と Infrastructure は相互に参照しない。
 | T-015 | 戦闘UI(Presentation)(完了) | コマンド選択UI、HP/MP表示、戦闘ログ | コマンド入力でT-008のユースケースを呼び出し、結果が画面に反映される | PlayModeテスト8件がPassed、手動プレイで1戦闘を最初から最後まで実行し確認済み | T-008, T-013 |
 | T-016 | タイトル画面(Presentation)(完了) | はじめから/つづきからの選択UI | 「はじめから」で新規開始、「つづきから」でT-011のセーブデータをロードできる | PlayModeテスト9件がPassed、手動プレイで両方の分岐を確認済み | T-011 |
 | T-017 | ゲームクリア/ゲームオーバー画面(Presentation)(完了) | クリア時・全滅時の専用画面 | ボス撃破でクリア画面、全滅でゲームオーバー画面が表示される | PlayModeテスト7件がPassed、手動プレイで両方のケースを確認済み | T-008, T-016 |
-| T-018 | 村エリアの実装 | Village Scene、NPC3体以上、フィールドへの接続 | 村シーンが単独でロード可能で、NPC会話とフィールドへの移動ができる | 手動プレイでシーン内を一巡して確認 | T-013, T-014 |
-| T-019 | フィールドエリアの実装 | Field Scene、通常敵エンカウント、ダンジョン入口 | フィールドを探索でき、エンカウントが発生し、ダンジョンへ入れる | 手動プレイでエンカウント発生とダンジョン入口到達を確認 | T-015, T-018 |
-| T-020 | ダンジョンの実装 | Dungeon Scene、通常敵エンカウント、ボス部屋 | ダンジョンを進めて道中戦闘を経てボスに到達できる | 手動プレイで入口からボス部屋まで到達を確認 | T-019 |
+| T-018 | 村エリアの実装(完了) | Village Scene、NPC3体以上、フィールドへの接続 | 村シーンが単独でロード可能で、NPC会話とフィールドへの移動ができる | 手動プレイでシーン内を一巡して確認 | T-013, T-014 |
+| T-019 | フィールドエリアの実装(完了) | Field Scene、通常敵エンカウント、ダンジョン入口 | フィールドを探索でき、エンカウントが発生し、ダンジョンへ入れる | 手動プレイでエンカウント発生とダンジョン入口到達を確認 | T-015, T-018 |
+| T-020 | ダンジョンの実装(完了) | Dungeon Scene、通常敵エンカウント、ボス部屋 | ダンジョンを進めて道中戦闘を経てボスに到達できる | 手動プレイで入口からボス部屋まで到達を確認 | T-019 |
 | T-021 | メインクエストの実装 | メインクエスト1本のトリガー・進行・完了 | 村での受注からボス撃破での完了までが一連で成立する | 手動プレイで開始から完了までを確認 | T-007, T-009, T-020 |
 | T-022 | サブクエスト2本の実装 | サブクエスト2本のトリガー・進行・完了 | メインクエストと独立に受注・完了できる | 手動プレイでメインクエストと絡めず完了できることを確認 | T-007, T-018 |
 | T-023 | アイテム・装備システムの実装 | インベントリUI、装備切り替えUI | アイテム使用・装備変更がステータス/戦闘に反映される | 手動プレイで装備変更前後のステータス変化と、アイテム使用効果を確認 | T-012, T-015 |
