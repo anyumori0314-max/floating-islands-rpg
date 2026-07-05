@@ -1,14 +1,17 @@
 using System;
 using FloatingIslandsRpg.Application.Scenes;
-using FloatingIslandsRpg.Presentation.Dialogue;
+using FloatingIslandsRpg.Infrastructure.Battle;
+using FloatingIslandsRpg.Presentation.Encounters;
 using FloatingIslandsRpg.Presentation.Scenes;
 using UnityEngine;
 
 namespace FloatingIslandsRpg.Composition.Scenes
 {
-    public sealed class VillageSceneInstaller : MonoBehaviour
+    public sealed class FieldSceneInstaller : MonoBehaviour
     {
         private GameServices _services;
+        private FieldEncounterController _encounterController;
+        private FieldActivityGate _activityGate;
         private SceneTransitionTrigger[] _transitionTriggers;
 
         private void Awake()
@@ -18,13 +21,13 @@ namespace FloatingIslandsRpg.Composition.Scenes
 
         private void Start()
         {
-            if (_services.CurrentSession != null)
+            _activityGate = FindFirstObjectByType<FieldActivityGate>();
+
+            _encounterController = FindFirstObjectByType<FieldEncounterController>();
+            if (_encounterController != null)
             {
-                var npcs = FindObjectsByType<NpcInteractable>(FindObjectsSortMode.None);
-                foreach (var npc in npcs)
-                {
-                    npc.LinkedQuest = _services.CurrentSession.MainQuest;
-                }
+                _encounterController.Bind(new SystemRandomSource());
+                _encounterController.EncounterTriggered += OnEncounterTriggered;
             }
 
             _transitionTriggers = FindObjectsByType<SceneTransitionTrigger>(FindObjectsSortMode.None);
@@ -36,6 +39,11 @@ namespace FloatingIslandsRpg.Composition.Scenes
 
         private void OnDestroy()
         {
+            if (_encounterController != null)
+            {
+                _encounterController.EncounterTriggered -= OnEncounterTriggered;
+            }
+
             if (_transitionTriggers == null)
             {
                 return;
@@ -44,6 +52,28 @@ namespace FloatingIslandsRpg.Composition.Scenes
             foreach (var trigger in _transitionTriggers)
             {
                 trigger.TransitionRequested -= OnTransitionRequested;
+            }
+        }
+
+        private void OnEncounterTriggered()
+        {
+            StartEncounterAsync();
+        }
+
+        private async void StartEncounterAsync()
+        {
+            _services.PendingBattle = new PendingBattleContext(SceneId.Field, isBossEncounter: false);
+            _activityGate?.Pause();
+
+            try
+            {
+                await _services.SceneTransitionUseCase.TransitionToAsync(SceneId.Battle, SceneLoadMode.Additive);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex, this);
+                _services.PendingBattle = null;
+                _activityGate?.Resume();
             }
         }
 

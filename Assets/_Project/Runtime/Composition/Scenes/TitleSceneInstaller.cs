@@ -67,6 +67,7 @@ namespace FloatingIslandsRpg.Composition.Scenes
             _services.CurrentSession = session;
             _services.LastBattleOutcome = null;
             _services.RematchSnapshot = null;
+            _services.PendingBattle = null;
 
             await TransitionAsync(SceneId.Village);
         }
@@ -76,6 +77,7 @@ namespace FloatingIslandsRpg.Composition.Scenes
             _services.CurrentSession = state;
             _services.LastBattleOutcome = null;
             _services.RematchSnapshot = null;
+            _services.PendingBattle = null;
 
             await TransitionAsync(state.CurrentSceneId);
         }

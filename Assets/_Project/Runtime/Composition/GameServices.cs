@@ -31,6 +31,12 @@ namespace FloatingIslandsRpg.Composition
         // instead of the save file's CurrentSceneId (Retry always re-enters Battle).
         public PlayerSessionState RematchSnapshot { get; set; }
 
+        // Set by a Field/Dungeon scene installer immediately before an Additive Battle load;
+        // consumed and cleared by BattleSceneInstaller once the battle resolves. Null means
+        // "no additive field/dungeon encounter in flight" (e.g. a Single-mode Retry from
+        // GameClear, or before this feature existed).
+        public PendingBattleContext PendingBattle { get; set; }
+
         public GameServices(string saveDirectoryPath)
         {
             var storage = new FileSystemSaveStorage(saveDirectoryPath);
