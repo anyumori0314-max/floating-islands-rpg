@@ -5,7 +5,10 @@
         "FloatingIslandsRpg.Domain",
         "FloatingIslandsRpg.Application",
         "FloatingIslandsRpg.Infrastructure",
-        "FloatingIslandsRpg.Presentation"
+        "FloatingIslandsRpg.Presentation",
+        "FloatingIslandsRpg.Composition",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
