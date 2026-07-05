@@ -1,11 +1,12 @@
 {
-    "name": "FloatingIslandsRpg.Presentation",
-    "rootNamespace": "FloatingIslandsRpg.Presentation",
+    "name": "FloatingIslandsRpg.Composition",
+    "rootNamespace": "FloatingIslandsRpg.Composition",
     "references": [
         "FloatingIslandsRpg.Domain",
         "FloatingIslandsRpg.Application",
-        "Unity.InputSystem",
-        "UnityEngine.UI"
+        "FloatingIslandsRpg.Infrastructure",
+        "FloatingIslandsRpg.Presentation",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
