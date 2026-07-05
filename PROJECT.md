@@ -1,7 +1,7 @@
 # PROJECT.md
 
 > floating-islands-rpg の設計方針・スコープ・実装タスクを一元管理するドキュメント。
-> 最終更新: 2026-07-04 (Codex第三者レビュー: T-008/T-009/T-011のMajor2件・Minor1件対応完了、全249件Passedを反映)
+> 最終更新: 2026-07-05 (T-013〜T-017完了、およびCodex第三者レビュー指摘[Major4件・Minor1件]対応(Composition Root新設等)を反映。`feature/presentation-gameplay-slice`ブランチ、`main`へは未マージ・未コミット)
 
 ---
 
@@ -89,7 +89,7 @@
 | Battle | 戦闘専用シーン。フィールド/ダンジョンSceneに対してAdditiveロードする(4.設計「Scene構成」参照) |
 | GameClear | ゲームクリア画面 |
 
-現在存在する実体は `Assets/Scenes/SampleScene.unity` のみで、上記はすべて未作成。
+**現状(2026-07-05更新)**: `Title`/`Village`/`Battle`/`GameClear`の4Sceneが`Assets/_Project/Scenes/`に実体として作成済み(Title/GameClearはT-016/T-017、Villageは配線検証用の最小スキャフォールド[NPC1体、T-018の完了条件は未達]、BattleはT-015の本番配線用に作成)。`Field`/`Dungeon`は未作成(T-019/T-020で対応予定)。旧`Assets/Scenes/SampleScene.unity`はAsset自体を保持しているが、Build Settingsからは除外済み(下記「Build Settings」参照)。
 
 ### プレイヤー操作
 - 新Input System(`InputSystem_Actions.inputactions` が既定生成済み)を用いた移動・決定・キャンセル・メニュー呼び出し。
@@ -120,7 +120,7 @@
 - プレイヤー主導のセーブ(任意タイミング)。ロードはタイトル画面からのみ。保存形式はバージョン付きJSON(4.設計「セーブデータ設計方針」参照)。
 
 ### ゲームオーバー
-- パーティ全滅でゲームオーバー画面へ遷移し、直近のセーブ地点からの再開を選べる。
+- パーティ全滅でゲームオーバー画面へ遷移する。ゲームオーバー時は、戦闘開始直前の状態からBattleを再ロードして再戦できる(Retry。詳細は4.設計「T-017 Retry仕様の修正」参照)。
 
 ### エラー時の挙動
 - セーブデータ読込失敗時はゲームを強制終了させず、エラーを通知した上でタイトル画面に留める(セーブデータ破損時の扱いは5.規約参照)。
@@ -280,6 +280,70 @@ Assets/
 - 実際のゲームデータAsset(通常敵3種・ボス1体・アイテム・装備等)は作成していない。PROJECT.mdの完了条件は「データ定義クラスが用意されている」ことであり、ダミーAssetの大量作成は避けた。
 - **確認方法についての注記**: PROJECT.mdの確認方法は「Unity Editorでアセット作成が可能なことを確認」であり自動テストを必須としていない。検証ロジック自体(ID検証・重複検出等)はDomain層のプレーンC#型としてEditModeテストで網羅した。
 
+### プレイヤー移動・カメラ(T-013で作成済み)
+- `Assets/_Project/Runtime/Presentation/Player/PlayerMovement.cs`: 新Input System(`Player/Move`)によるCharacterController移動・移動方向への回転。`Assets/_Project/Runtime/Presentation/Cameras/FollowCamera.cs`: 対象Transformへの追従(Lerp)・注視。`Assets/_Project/Prefabs/Player.prefab`を作成。
+- PlayModeテスト6件(`PlayerMovementTests`3件、`FollowCameraTests`3件)。フレーム依存の時間差による誤検出を避けるため、複数フレームの経過時間(`Time.deltaTime`合計)から平均水平速度を算出して比較する方式を採用(1フレームの生距離比較はしない)。
+
+### NPC会話UI(T-014で作成済み)
+- `Assets/_Project/Runtime/Presentation/Dialogue/`に`DialogueSession`(ページ送り状態を持つ純粋C#クラス、UnityEngine非依存)、`DialogueBoxView`(MonoBehaviour、共有UI表示・Submit入力でのテキスト送り)、`NpcInteractable`(MonoBehaviour、NPCごとの会話トリガー・プレイヤー移動の一時無効化・T-007 `QuestProgress`との連携)を作成。
+- クエスト状態はPresentation内で独自に保持せず、外部から注入された`QuestProgress`(T-007)インスタンスをそのまま参照・操作する(`Start()`呼び出しのみ。`Complete()`は本Taskの対象外)。
+- `Assets/_Project/Prefabs/DialogueBox.prefab`を作成(UnityEngine.UI Text使用)。
+- PlayModeテスト22件(`DialogueSessionTests`8件、`DialogueBoxViewTests`6件、`NpcInteractableTests`8件)。
+
+### 戦闘UI(T-015で作成済み)
+- `Assets/_Project/Runtime/Presentation/Battle/BattleUIController.cs`: T-008 `BattleSession.ExecuteTurn(BattleCommand.Attack)`をAttackボタンから呼び出し、`BattleTurnResult`/`BattleActionResult`をHP表示・戦闘ログ・勝敗表示へ変換する。ダメージ計算・命中判定・行動順の再実装はしていない。`BattleSession`はController外部から`Bind()`で注入する(Presentationが戦闘状態を生成しない)。
+- `Assets/_Project/Prefabs/BattleUI.prefab`を作成。
+- PlayModeテスト8件(`BattleUIControllerTests`)。
+
+### タイトル画面(T-016で作成済み)
+- `Assets/_Project/Runtime/Presentation/Title/TitleScreenController.cs`: T-010 `LoadGameUseCase`を`Bind()`で外部から注入し、`Load()`結果でContinueボタンの有効/無効とエラー表示を切り替える。New Game/Continue/Quitクリックは`NewGameRequested`/`ContinueRequested`/`QuitRequested`のC#イベントとして公開し、実際のScene遷移(T-009)は呼び出し側(合成ルート)の責務とする。Quitは`#if UNITY_EDITOR`でEditor/Build双方に対応。
+- 正式`Assets/_Project/Scenes/Title.unity`をUnity MCPで新規作成。
+- PlayModeテスト9件(`TitleScreenControllerTests`)。
+
+### ゲームクリア/ゲームオーバー画面(T-017で作成済み)
+- `Assets/_Project/Runtime/Presentation/Results/GameResultScreenController.cs`: T-008 `BattleOutcome`(`PlayerVictory`/`PlayerDefeat`)を`Show()`で外部から受け取り、Clear/Over表示を切り替える(勝敗の再計算はしない。`InProgress`等の不正な値は`false`を返して安全に無視する)。Title遷移・Retry(RematchSnapshotから戦闘開始直前の状態を復元し、Battle Sceneを再ロードして再戦)は`TitleRequested`/`RetryRequested`イベントとして公開し、実際のロード・Scene遷移は呼び出し側の責務とする。
+- `SceneId`(T-003)に`GameOver`は存在しないため、新規SceneId追加はせず単一の`GameClear.unity`内でClear/Over表示を切り替える設計とした。
+- 正式`Assets/_Project/Scenes/GameClear.unity`をUnity MCPで新規作成。
+- PlayModeテスト7件(`GameResultScreenControllerTests`)。
+
+### Composition Root(Codex第三者レビューMajor 1指摘対応、本セッションで作成)
+- **課題**: `BattleUIController.Bind(BattleSession)` / `TitleScreenController.Bind(LoadGameUseCase)`等、Presentationの各Controllerは外部注入されるBindパターンで設計したが、実際に`ISaveRepository`/`ISceneLoader`のInfrastructure実装を生成しControllerへ結線する仕組みが存在せず、テストや一時的なUnity Editor操作でしか動作を確認できていなかった。
+- **採用方式**: 新規asmdef`FloatingIslandsRpg.Composition`(`Assets/_Project/Runtime/Composition/`、参照: Domain, Application, Infrastructure, Presentation, Unity.InputSystem)を作成し、本番ランタイムでの依存組み立て専用レイヤーとした。`Presentation`/`Application`からは引き続き`Infrastructure`を直接参照しない。
+  - `GameServices`(純粋C#): `ISaveRepository`/`SaveGameUseCase`/`LoadGameUseCase`/`ISceneLoader`/`SceneTransitionUseCase`(すべて既存コンストラクタで生成)を保持し、実行時セッション(`PlayerSessionState CurrentSession`、`BattleOutcome? LastBattleOutcome`)を明示的に保持する。static状態は一切持たない。
+  - `GameCompositionRoot`(MonoBehaviour): `Awake()`で`GameServices`を生成し`DontDestroyOnLoad`する。`FindObjectsByType`による重複検出で二重生成を防止(static Instanceは公開しない)。`EnsureServices()`により、何らかの理由で既存インスタンスの`Services`がnullな場合も自己修復する(回帰テスト`EnsureRoot_ExistingRootHasNullServices_ReconstructsServices`で検証)。
+  - `GameCompositionRootLocator.EnsureRoot()`(static、状態は持たないユーティリティ関数): 各SceneのInstallerが一度だけ呼び出し、既存Rootを発見または新規作成する。
+  - Scene別Installer(`TitleSceneInstaller`, `VillageSceneInstaller`, `BattleSceneInstaller`, `GameClearSceneInstaller`): 各SceneのController/NPCへ依存を注入し、Controllerのイベントを購読してT-009 `SceneTransitionUseCase`経由の実遷移を行う。すべて`OnDestroy`で購読解除する。
+  - `FloatingIslandsRpg.Infrastructure.Battle.SystemRandomSource`(`IRandomSource`実装、`System.Random`ラッパー)を追加し、本番Battle SceneでBattleSessionへ実際の乱数を供給する。
+  - `Tests.PlayMode.asmdef`に`FloatingIslandsRpg.Composition`参照を追加(検証専用の例外。本番4層[Domain/Application/Infrastructure/Presentation]同士の相互参照ルールはそのまま維持)。他のアセンブリからCompositionは参照させていない。
+
+### T-013〜T-017 本番経路接続(Codex第三者レビューMajor 2/3/4指摘対応)
+- **T-013**: `Village.unity`のMain Cameraに`FollowCamera`を追加し、Scene内に配置した`Player.prefab`インスタンスへ`SetTarget()`で接続(Edit時設定)。Camera/AudioListenerは各Scene1つのみ。
+- **T-014**: `Village.unity`へ最小NPC(`Villager`、Primitiveの見た目、`SphereCollider`トリガー)を配置し、`NpcInteractable`に`DialogueBoxView`/`PlayerMovement`/Interact用`InputActionReference`をEdit時設定。`VillageSceneInstaller`が`GameServices.CurrentSession.MainQuest`を`NpcInteractable.LinkedQuest`へ実行時注入する。**T-018(村エリア本実装)の完了条件(NPC3体以上・Field接続等)は満たさない配線検証専用のスキャフォールドである**ことを明記する。
+- **T-015**: `Battle.unity`を新規作成し`BattleUI.prefab`を配置。`BattleUIController`に`event Action<BattleOutcome> BattleEnded`を追加(既存Bind/ExecuteTurn呼び出しは変更なし)。`BattleSceneInstaller`が`GameServices.CurrentSession.Stats`(未設定時はプレースホルダー)からPlayer/Enemy(プレースホルダー)の`BattleSession`を生成し`Bind()`、`BattleEnded`購読でT-009経由`GameClear`へ遷移。
+- **T-016**: `TitleSceneInstaller`が`GameServices.LoadGameUseCase`を`TitleScreenController.Bind()`へ注入。New Game時はプレースホルダー初期`CharacterStats`で`PlayerSessionState`を生成し`SceneId.Village`へ、Continue時はロード済み状態の`CurrentSceneId`へ、T-009経由で実遷移する。
+- **T-017**: `GameClearSceneInstaller`が`GameServices.LastBattleOutcome`を`GameResultScreenController.Show()`へ注入。Title/RetryクリックはT-009経由で実遷移。
+- **プレースホルダーデータについての注記**: 開始時プレイヤーステータス・Battleの敵ステータスは、実際のMasterData Asset(T-012スコープ外、実データ未作成)が存在しないため、Composition層に明示コメント付きの固定値を仮置きした。将来、実データAssetが用意され次第置き換える。
+- **Prefab化の一部未対応(Codex判定によりMVPでは必須ではない)**: `DialogueBox.prefab`/`BattleUI.prefab`は作成したが、`Title.unity`/`GameClear.unity`のUIはScene専用のためPrefab化していない。再利用が発生した時点で将来Taskとして検討する。
+- `Presentation.asmdef`に`UnityEngine.UI`参照を追加した(`com.unity.ugui`は既存インストール済みパッケージであり新規Package追加ではない)。
+
+### T-017 Retry仕様の修正、および遷移失敗時のUI復旧(Codex最終再レビューMajor 2件・Minor 2件対応)
+- **Retryの遷移先をBattleへ固定**: Codex指摘により、Retryが保存データの`CurrentSceneId`(例: Village)へ遷移してしまう不具合を修正した。`GameClearSceneInstaller.OnRetryRequested`は`LoadGameUseCase`を使わず、`GameServices.RematchSnapshot`から`CurrentSession`を復元したうえで、常に`SceneId.Battle`へT-009経由で遷移する。
+- **再戦用状態(`GameServices.RematchSnapshot`)**: `GameServices`が`PlayerSessionState RematchSnapshot`を新たに所有する(static状態・Service Locatorは使用しない、インスタンスプロパティ)。`BattleSceneInstaller.Start()`が、Battle開始直前の`CurrentSession`(Stats・TotalExperience・CurrentHp・CurrentMp・Quest参照)を既存の`PlayerSessionState`コンストラクタで防御的コピーし`RematchSnapshot`へ保存する。これにより、Retry時は「戦闘開始直前のHP」(敗北後の0ではない)へ復元される。`CurrentSession`が未設定の場合はプレースホルダーの満タンHPで代替する。
+- **RematchSnapshotが存在しない場合**: `GameResultScreenController.ShowError()`(新規、`_errorText`表示)でエラーを表示し、遷移を行わない(安全側に倒す)。
+- **LastBattleOutcomeのクリア箇所**: (1) New Game時(`TitleSceneInstaller.OnNewGameRequested`、`RematchSnapshot`も同時にクリア)、(2) Continue時(`TitleSceneInstaller.OnContinueRequested`、`RematchSnapshot`も同時にクリア。保存データに古い戦闘結果・再戦状態を持ち越さない)、(3) GameClearからTitleへ戻る時(`GameClearSceneInstaller.OnTitleRequested`)、(4) Retry開始時(`GameClearSceneInstaller.OnRetryRequested`の先頭、RematchSnapshot有無の判定より前)。
+- **遷移失敗時のUI復旧**: `TitleScreenController`/`GameResultScreenController`に`CompleteTransition()`/`FailTransition()`を追加した。各Scene Installer(`TitleSceneInstaller`, `GameClearSceneInstaller`)は、`SceneTransitionUseCase.TransitionToAsync`呼び出しを`try/catch/finally`で包み、例外は`Debug.LogException`でログへ残したうえで(握りつぶさない)、`finally`で成功時`CompleteTransition()`・失敗時`FailTransition()`を必ず呼び出す。`FailTransition()`は遷移中フラグを解除しボタンを再度押せる状態へ戻す。非同期処理の実体(`TransitionAsync`)はTaskを返すprivateメソッドとして分離し、Unityイベント購読口(`OnNewGameRequested`等)のみを`async void`とした。`BattleUIController`については、`ShowResult()`が`BattleEnded`イベント発火(≒Scene遷移開始)より前に同期的に完了しているため、GameClearへの遷移が失敗してもBattle画面自体の表示状態(結果パネル・Attackボタン無効化)は元々破綻しない設計であることをテストで確認し、追加のController APIは設けていない。
+- **Locatorの用途は変更していない**: `GameCompositionRootLocator.EnsureRoot()`はScene Installerからのみ呼び出す用途のまま維持し、任意のControllerが直接サービスを取得できるAPIは追加していない。static可変状態・Singleton公開も引き続き行っていない。
+
+### Build Settings(Codex第三者レビューMajor 4指摘、および最終再レビュー指摘対応)
+- `ProjectSettings/EditorBuildSettings.asset`を、Unity MCP(`manage_build` action=scenes)経由で以下の順序へ更新した(直接テキスト編集はしていない)。
+  - Build Index 0: `Title`
+  - Build Index 1: `Village`
+  - Build Index 2: `Battle`
+  - Build Index 3: `GameClear`
+- `SampleScene`はBuild Settingsから除外した(Build実行時に正式なTitleから開始されるようにするため)。Field/Dungeonは未作成のため登録していない。
+- `SampleScene.unity`のAsset自体は5.規約・7.要承認事項の既定方針により削除していない(Build対象外になっただけで、Assetとしては保持)。
+- `SceneNameCatalog`(T-003)が保持するScene名(`Title`/`Village`/`Field`/`Dungeon`/`Battle`/`GameClear`)とBuild Settings登録パスのScene名は一致している。
+
 ### Prefab方針
 - プレイヤー、NPC、敵、UIパネル等は原則Prefab化し、Sceneへの直置きを避ける。
 - Prefab Variantsを用いて敵3種+ボスなど差分の大きいバリエーションを管理する。
@@ -355,12 +419,36 @@ Presentation と Infrastructure は相互に参照しない。
 - **T-005: 完了・`main`にマージ済み**(Codex第三者レビューMajor指摘対応完了、PR #4)。戦闘計算ロジック(`CombatCalculator`: ダメージ計算・命中/回避・行動順決定)をDomain層に作成。EditModeテスト40件すべてPassed。
 - **T-006: 完了・`main`にマージ済み**(Codex第三者レビュー合格済み、PR #4)。経験値・レベルアップ計算ロジック(`ExperienceTable`, `LevelUpCalculator`)をDomain層に作成。EditModeテスト20件すべてPassed。
 - **T-007: 完了・`main`にマージ済み**(Codex第三者レビュー合格済み、PR #4)。クエスト状態管理(`QuestState`, `QuestProgress`)をDomain層に作成。EditModeテスト8件すべてPassed。
-- **T-008: 完了(`feature/gameplay-application-foundation`ブランチ、Codex第三者レビューMinor指摘対応完了、mainへ未マージ)**。戦闘進行ユースケース(`BattleSession`等)をApplication層に作成。EditModeテスト27件すべてPassed。
-- **T-009: 完了(`feature/gameplay-application-foundation`ブランチ、Codex第三者レビューMajor指摘対応完了、mainへ未マージ)**。Scene遷移ユースケース(`SceneTransitionUseCase`, `UnitySceneLoader`)をApplication/Infrastructure層に作成。EditModeテスト17件すべてPassed。
-- **T-010: 完了(`feature/gameplay-application-foundation`ブランチ、mainへ未マージ)**。セーブ/ロードユースケースと`PlayerSessionState`をApplication層に作成。EditModeテスト34件すべてPassed。
-- **T-011: 完了(`feature/gameplay-application-foundation`ブランチ、Codex第三者レビューMajor指摘対応完了、mainへ未マージ)**。セーブデータ保存基盤(`FileSystemSaveStorage`, `JsonSaveRepository`)をInfrastructure層に作成。PlayModeテスト24件すべてPassed。
-- **T-012: 完了(`feature/gameplay-application-foundation`ブランチ、mainへ未マージ)**。敵/アイテム/装備マスターデータ定義をDomain/Infrastructure層に作成。EditModeテスト35件すべてPassed。
-- **ゲーム実装**: T-003〜T-012で作成した範囲(Scene識別子、キャラクターステータス計算、戦闘計算・進行、経験値・レベルアップ計算、クエスト状態管理、Scene遷移、セーブ/ロード、マスターデータ定義)以外のゲーム機能・C#クラス(Presentationの実装コード、実際のScene/Prefab/UI等)は未実装。
+- **T-008: 完了・`main`にマージ済み(PR #5、Codex第三者レビューMinor指摘対応完了)**。戦闘進行ユースケース(`BattleSession`等)をApplication層に作成。EditModeテスト27件すべてPassed。
+- **T-009: 完了・`main`にマージ済み(PR #5、Codex第三者レビューMajor指摘対応完了)**。Scene遷移ユースケース(`SceneTransitionUseCase`, `UnitySceneLoader`)をApplication/Infrastructure層に作成。EditModeテスト17件すべてPassed。
+- **T-010: 完了・`main`にマージ済み(PR #5)**。セーブ/ロードユースケースと`PlayerSessionState`をApplication層に作成。EditModeテスト34件すべてPassed。
+- **T-011: 完了・`main`にマージ済み(PR #5、Codex第三者レビューMajor指摘対応完了)**。セーブデータ保存基盤(`FileSystemSaveStorage`, `JsonSaveRepository`)をInfrastructure層に作成。PlayModeテスト24件すべてPassed。
+- **T-012: 完了・`main`にマージ済み(PR #5)**。敵/アイテム/装備マスターデータ定義をDomain/Infrastructure層に作成。EditModeテスト35件すべてPassed。
+- **T-013: 完了(`feature/presentation-gameplay-slice`ブランチ、`main`へ未マージ・未コミット)**。プレイヤー移動・追従カメラ(`PlayerMovement`, `FollowCamera`)をPresentation層に作成。PlayModeテスト6件すべてPassed。
+- **T-014: 完了(同ブランチ)**。NPC会話UI(`DialogueSession`, `DialogueBoxView`, `NpcInteractable`)をPresentation層に作成。T-007 `QuestProgress`と連携。PlayModeテスト22件すべてPassed。`DialogueBox.prefab`作成。
+- **T-015: 完了(同ブランチ)**。戦闘UI(`BattleUIController`)をPresentation層に作成。T-008 `BattleSession`をそのまま利用しダメージ/命中判定/行動順を再実装していない。PlayModeテスト8件すべてPassed。`BattleUI.prefab`作成。
+- **T-016: 完了(同ブランチ)**。タイトル画面(`TitleScreenController`)をPresentation層に作成。T-010 `LoadGameUseCase`を注入して使用しセーブデータ有無に応じConinue可否を切り替える。正式`Title.unity` Sceneを新規作成。PlayModeテスト9件すべてPassed。
+- **T-017: 完了(同ブランチ)**。ゲームクリア/オーバー画面(`GameResultScreenController`)をPresentation層に作成。T-008 `BattleOutcome`を外部から受け取り表示するのみで勝敗を再計算しない。正式`GameClear.unity` Sceneを新規作成(`SceneId`に`GameOver`は存在しないため、単一Scene内でClear/Over表示を切り替える設計)。PlayModeテスト7件すべてPassed。
+- **T-013〜T-017 合計(初回実装セッション)**: PlayModeテスト新規52件(6+22+8+9+7)。全EditMode 225件、全PlayMode 76件(既存24+新規52)、全件Passed。
+- **Codex第三者レビュー指摘対応(Major 4件・Minor 1件、本セッションで対応完了)**: Major1(本番Composition Rootが存在せずテストからのBind/Show以外で本番経路が成立しない)、Major2(T-013 FollowCameraが実Scene/Prefabへ未配置)、Major3(T-014 NpcInteractableが実Scene/Prefabへ未配置)、Major4(Title/GameClear等の正式SceneがBuild Settings未登録)、Minor(`Assets/Screenshots/`のコミット方針未定義)を解消。
+  - 新規asmdef`FloatingIslandsRpg.Composition`を作成し`GameServices`/`GameCompositionRoot`/`GameCompositionRootLocator`/Scene別Installer4種を実装(詳細は4.設計「Composition Root」参照)。
+  - `Village.unity`(最小スキャフォールド)・`Battle.unity`を新規作成し、`Title.unity`/`GameClear.unity`と合わせてBuild Settingsへ登録(詳細は4.設計「T-013〜T-017 本番経路接続」「Build Settings」参照)。
+  - `FloatingIslandsRpg.Infrastructure.Battle.SystemRandomSource`(`IRandomSource`実装)をInfrastructure層に追加。
+  - `BattleUIController`に`BattleEnded`イベントを追加(既存API変更なし)。
+  - `Assets/Screenshots/`はコミット対象外(未追跡のまま、本番Asset・テストからも参照しない)と方針決定。
+  - 新規PlayModeテスト22件(Composition Root関連。`GameServicesTests`3件、`GameCompositionRootTests`2件、`GameCompositionRootLocatorTests`3件、`TitleSceneInstallerTests`4件、`BattleSceneInstallerTests`3件、`GameClearSceneInstallerTests`4件、`VillageSceneInstallerTests`2件、以上に自己修復の回帰テスト1件を追加)。
+  - **手動確認(Unity Editor実機Play Mode、フェイクなし)**: Title→New Game→Village実遷移、Village上でNPCへの会話開始→3ページ送り→終了→プレイヤー移動停止/復帰、実セーブ作成→Title→Continue→Battle実遷移(ロード済みStatsがHP表示に反映)→Attack操作→Victory→GameClear実遷移(Clear表示)→Title実遷移、および別セーブでDefeat→GameOver表示→Retry→実セーブ再ロード→Battle実遷移(再ロードHPが反映)まで、スクリーンショットで確認済み。
+  - **全体テスト実行結果**: 全EditMode 225件、全PlayMode 98件(既存76+Composition新規22)。Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)を、全PlayModeは3回連続実行で確認済み。プロジェクトコード由来のConsole Error/Warning 0件、Missing Script/Broken Prefab 0件(全4正式Scene`manage_scene validate`で確認)。Play Mode中に`[WebSocket] Unexpected receive error`(MCP由来、既知)、および今回新たに`PlayerLoop internal function called recursively`とスクリプト参照欠落の一時的なConsole出力を観測したが、いずれもMCP自動化ツールによる短時間の連続Play Mode操作(pause切替・execute_code連続実行)に起因する一過性の事象であり、全4正式Sceneの`manage_scene validate`は0件を維持しているため、プロジェクトコード由来ではないと判断した(詳細は「既知の問題」参照)。
+- **Codex最終再レビュー指摘対応(Major 2件・Minor 2件、本セッションで対応完了)**: Build Settings(SampleSceneがBuild Index 0のまま)、T-017 Retry仕様(保存データのCurrentSceneIdへ遷移してしまい実際にはBattleへ戻らない)の2 Major、および遷移失敗時のUI復旧、PROJECT.mdの古い記述("SampleSceneのみ存在")の2 Minorを解消。
+  - Build SettingsをUnity MCP(`manage_build`)経由で Title(0)→Village(1)→Battle(2)→GameClear(3) の順へ更新し、SampleSceneを除外(詳細は4.設計「Build Settings」参照)。
+  - `GameServices.RematchSnapshot`を新設し、`BattleSceneInstaller`がBattle開始直前の`CurrentSession`を防御的コピーして保持。`GameClearSceneInstaller.OnRetryRequested`はこのSnapshotから`CurrentSession`を復元し、常に`SceneId.Battle`へ遷移する(保存データの`CurrentSceneId`は使用しない)。Snapshot不在時は`GameResultScreenController.ShowError()`で安全に失敗する(詳細は4.設計「T-017 Retry仕様の修正」参照)。
+  - `LastBattleOutcome`のクリア箇所をNew Game/Continue/Title復帰/Retry開始の4箇所に整備。
+  - `TitleScreenController`/`GameResultScreenController`に`CompleteTransition()`/`FailTransition()`を追加し、各Scene Installerの非同期遷移を`try/catch/finally`化(例外はログに残し握りつぶさない、`async void`はイベント購読口のみ)。
+  - `GameCompositionRootLocator`の用途(Scene Installer専用、public Root取得APIなし)は変更していない。
+  - 新規・更新PlayModeテスト20件(`TitleSceneInstallerTests`+5、`BattleSceneInstallerTests`+3、`GameClearSceneInstallerTests`全面改訂9件、`TitleScreenControllerTests`+3、`GameResultScreenControllerTests`+5)。全PlayMode 118件(既存98+新規20)。
+  - **手動確認(実機Play Mode)**: 保存地点=Village・弱ステータスの実セーブ→Continue→Village実遷移(HP25/25正しく反映)→Battleへ実遷移(RematchSnapshot作成: CurrentSceneId=Battle, HP=25で一致確認)→Attack→Victory→GameClear実遷移(Clear表示)→Title実遷移(LastBattleOutcomeクリア確認)。別途、保存地点=Village・低HPセーブ→Continue→Village→Battle→Defeat→GameOver表示(古い結果の残留なし)→**Retry→Battle実遷移(保存地点Villageではない)を確認、HP 8/8(0ではない)で再戦開始**を確認。遷移失敗時のUI復旧は、実SceneManagerを意図的に破壊するのは危険なため、自動テスト(FakeSceneLoaderによる例外注入、6件)で検証した。
+  - **全体テスト実行結果**: 全EditMode 225件、全PlayMode 118件、Unity Editor Test Runnerで全件Passed(failed 0, skipped 0)を3回連続実行で確認。プロジェクトコード由来のConsole Error/Warning 0件、Missing Script/Broken Prefab 0件(全4正式Scene確認)。
+- **ゲーム実装**: T-003〜T-012(Scene識別子、キャラクターステータス計算、戦闘計算・進行、経験値・レベルアップ計算、クエスト状態管理、Scene遷移、セーブ/ロード、マスターデータ定義)に加え、T-013〜T-017でPresentation層の実装コード・Composition Root・Title/Village/Battle/GameClear Scene(Village/Battleは最小スキャフォールド)・EditMode/PlayModeテストが追加された。Field/Dungeon Sceneの実体、および実データAsset(敵/アイテム/装備・開始時ステータス等)は未実装(T-018以降で対応予定)。
 
 ### 完了済み
 - Unity 6 (6000.3.17f1) / URPの新規プロジェクトが作成済み。
@@ -396,29 +484,27 @@ Presentation と Infrastructure は相互に参照しない。
 - **T-008〜T-012 + Codex指摘対応 テスト実行結果**: Unity Editor Test Runnerで実行し、EditMode 225件(T-003〜T-007の112件+T-008 27件+T-009 17件+T-010 34件+T-012 35件)、PlayMode 24件(T-011)、合計249件。passed 249 / failed 0 / skipped 0、Console Error 0件・Warning 0件をユーザーが実行・確認済み。`ProjectSettings/EditorSettings.asset`の差分なしも確認済み。
 
 ### 未完了
-- Presentationの実装コード(C#クラス)が1つも存在しない(asmdefの外枠のみ)。
-- ゲームUI・Prefab・実際のScene・実データAsset(敵/アイテム/装備等)は一切未実装。
+- Field/Dungeon Sceneの実体、および実データAsset(敵/アイテム/装備・開始時プレイヤーステータス等)は未実装(T-018以降で対応予定)。`Village.unity`は配線検証専用の最小スキャフォールド(NPC1体)であり、T-018の完了条件(NPC3体以上、Field接続)は満たしていない。
 - CIの実行結果は本セッションでは未確認。
-- T-008〜T-012の変更、およびCodex第三者レビュー指摘対応(`BattleTurnResult.cs`, `ISceneLoader.cs`, `SceneTransitionUseCase.cs`, `UnitySceneLoader.cs`, `JsonSaveRepository.cs`と対応するEditMode/PlayModeテスト)が未コミット(現在の作業ブランチ`feature/gameplay-application-foundation`のワーキングツリーに存在)。
-- `feature/gameplay-application-foundation`ブランチが`origin`へ未push。
-- Presentation層でのT-008〜T-012の利用(戦闘UI、Scene遷移の実統合、タイトル画面からのロード等)は未実装(T-013以降で対応予定)。
 - 経験値獲得からのレベル再計算・ステータス反映(T-004/T-006とT-008/T-010の統合)、実際のマスターデータAssetの作成は未実装(将来Task想定、推測での先行実装は行っていない)。
+- `Title.unity`/`GameClear.unity`のUIはPrefab化していない(Codex第三者レビューによりMVPでは必須ではないと判定済み。各Scene専用のため)。
+- 遷移失敗時のUI復旧は自動テスト(Fake ISceneLoaderによる例外注入)で検証済みだが、実際のSceneManagerレベルでの失敗(例: Build Settings不整合、Scene破損)を意図的に再現した実機確認はしていない(実Sceneを破壊する検証は危険なため見送った)。
 
 ### 既知の問題
 - (解消済み・記録として保持)過去セッションでUnity MCP用ツールが一時的に利用できず、GameObject削除をシーンYAMLの直接編集で行った回があった。現在はUnity MCP接続を再確認済みであり、5.規約「Unity MCP運用方針」により今後はSceneの直接テキスト編集を禁止し、MCP経由での変更を必須とする。
 - Unity MCPパッケージ自体に起因すると見られる`[WebSocket] Unexpected receive error`という1件のConsole Warningが、`refresh_unity`実行時などに断続的に発生することがある(ゲーム側のコード・アセットには起因しない)。発生の有無はセッションごとに変動するため、作業前後で都度Console確認を行う。
+- `.vscode/`は開発者個人のエディタ設定であり、コミット対象外とする(未追跡のまま維持)。
 - Unity Test Framework(および同梱のUnity.PerformanceTesting)は、テスト実行時にそれ自体の内部ログとして`Exception`種別1件("Saving results to: ...")と`Warning`種別2件(`IPrebuildSetup`/`IPostBuildCleanup`実行ログ)をConsoleへ出力することがある。テスト対象コードの不具合ではなく、EditModeテストを実行した場合に付随するUnity側の既知の挙動(テスト自体はすべてPassed)。テスト実行前後でConsoleを確認し、実際のテスト結果(passed/failed/skipped)と合わせて判断する。
+- Composition Root導入セッションでの手動確認中、MCP経由で`manage_editor`のpause切替と`execute_code`を短時間に連続実行した際、`PlayerLoop internal function has been called recursively`というUnity Editor内部の警告と、スクリプト参照欠落を示すConsoleメッセージを1件ずつ観測した。直後に全4正式Scene(Title/Village/Battle/GameClear)を`manage_scene validate`した結果はいずれも0件(Missing Script/Broken Prefab)であり、プロジェクトコード・Asset側の永続的な不具合ではなく、MCP自動化ツールによる高速なPlay Mode操作に起因する一過性の事象と判断した。人間が通常操作でPlay Modeに出入りする分には発生しない想定。
+- `Assets/Screenshots/`はレビュー証跡(スクリーンショット)の保存先であり、コミット方針が定義されていないためコミット対象外とする(未追跡のまま維持、本番Asset・テストからは参照しない)。
 
 ### 次に行うこと
-- T-008〜T-012の変更とCodex第三者レビュー指摘対応(Major2件・Minor1件)をコミットする(人間の判断・実行を待つ)。
-- Codex第三者レビューへ再提出し、Major/Minor指摘の解消を確認する。
-- `feature/gameplay-application-foundation`ブランチを`origin`へpushする。
-- Pull Requestを作成する。
-- CIが正しく実行され成功することを確認する。
-- レビューを経て`main`へマージする。
-- マージ後、次のタスクは **T-013(プレイヤー移動・カメラ、Presentation)**(T-001に依存、着手可能)。手動プレイでの確認が中心となるため、Presentation実装に着手する前にUnity MCP接続の確立を確認する(5.規約「Unity MCP運用方針」参照)。
+- T-008〜T-012(`feature/gameplay-application-foundation`ブランチ)はPull Request #5を経て`main`へマージ済み(マージコミット`35ac111`)。
+- T-013〜T-017(`feature/presentation-gameplay-slice`ブランチ)は本セッションで完了。Codex第三者レビュー指摘(1回目: Major4件・Minor1件、2回目最終レビュー: Major2件・Minor2件)への対応もすべて完了。`main`へは未マージ・未コミット(commit/pushは本セッションでは行っていない)。
+- Codex再レビューが可能な状態(実装・テスト・手動確認・PROJECT.md更新が完了済み)。
+- 次のタスクは **T-018(村エリアの実装)**(T-013, T-014に依存、着手可能)。既存の最小`Village.unity`スキャフォールドを土台に、NPC3体以上への拡張とField接続を行う想定。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
-- `Assets/Scenes/SampleScene.unity` は、正式なTitle/Village/Field/Dungeon/Battle/GameClear Sceneが作成・検証されるまで保持する(削除しない)。`Bootstrap`は現在のMVP正式Scene一覧には含めない(必要になった場合はPROJECT.md更新・承認後に別Taskで追加する)。
+- `Assets/Scenes/SampleScene.unity` はAsset自体を保持する(削除しない)が、Build Settingsからは除外済み(正式なBuild開始SceneはTitle、4.設計「Build Settings」参照)。`Bootstrap`は現在のMVP正式Scene一覧には含めない(必要になった場合はPROJECT.md更新・承認後に別Taskで追加する)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
 
 ---
@@ -439,7 +525,7 @@ Presentation と Infrastructure は相互に参照しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画。T-001〜T-007は`main`にマージ済み。T-008(戦闘進行ユースケース)・T-009(Scene遷移ユースケース)・T-010(セーブ/ロードユースケース)・T-011(セーブデータ保存基盤)・T-012(マスターデータ定義)は`feature/gameplay-application-foundation`ブランチで完了(mainへ未マージ)。次はT-013以降に進める状態。
+> 本タスク一覧はPhase 1以降の実装計画。T-001〜T-012は`main`にマージ済み(T-008〜T-012は`feature/gameplay-application-foundation`ブランチ、PR #5)。T-013〜T-017は`feature/presentation-gameplay-slice`ブランチで完了済み(`main`へは未マージ・未コミット)。次はT-018以降に進める状態。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
@@ -456,11 +542,11 @@ Presentation と Infrastructure は相互に参照しない。
 | T-010 | セーブ/ロードユースケース(Application)(完了) | `Assets/_Project/Runtime/Application/Session/PlayerSessionState.cs`、`Assets/_Project/Runtime/Application/Save/`配下(7ファイル)、`Assets/_Project/Tests/EditMode/Session/`, `Assets/_Project/Tests/EditMode/Save/`配下のEditModeテスト3ファイル | セーブしたデータをロードした際に元の状態と一致する | EditModeテスト34件がPassed、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-004, T-007 |
 | T-011 | セーブデータ保存基盤(Infrastructure)(完了、Codex第三者レビューMajor指摘対応完了) | `Assets/_Project/Runtime/Infrastructure/Save/`配下(`FileSystemSaveStorage.cs`, `JsonSaveRepository.cs`)、`Assets/_Project/Tests/PlayMode/Save/`配下のPlayModeテスト2ファイル | ファイルの書き込み・読み込みが成功し、破損データ読込時はバックアップ復旧または安全な初期状態へ戻せる。意味検証を通過した候補のみを有効とする | PlayModeテスト24件がPassed(Tests.EditMode.asmdefがInfrastructure未参照のためPlayModeで検証)、Unity Editorでコンパイルが通り、Consoleにエラーが出ないこと | T-010 |
 | T-012 | 敵/アイテム/装備マスターデータ定義(Infrastructure)(完了) | `Assets/_Project/Runtime/Domain/MasterData/`配下(5ファイル)、`Assets/_Project/Runtime/Infrastructure/MasterData/`配下(3ファイル)、`Assets/_Project/Tests/EditMode/MasterData/`配下のEditModeテスト4ファイル | 通常敵3種、ボス1体、アイテム、装備のデータ定義クラスが用意されている | EditModeテスト35件がPassed(検証ロジックのDomain層テスト)、実データAssetの作成はUnity Editorでの手動確認対象 | T-002 |
-| T-013 | プレイヤー移動・カメラ(Presentation) | 新Input Systemを用いた3D移動、追従カメラ | フィールド上でプレイヤーが移動でき、カメラが追従する | 手動プレイで移動・カメラ挙動を確認 | T-001 |
-| T-014 | NPC会話UI(Presentation) | 会話ウィンドウ、テキスト送り | NPCに話しかけると会話ウィンドウが開き、読み進められる | 手動プレイで会話開始〜終了までを確認 | T-013 |
-| T-015 | 戦闘UI(Presentation) | コマンド選択UI、HP/MP表示、戦闘ログ | コマンド入力でT-008のユースケースを呼び出し、結果が画面に反映される | 手動プレイで1戦闘を最初から最後まで実行し確認 | T-008, T-013 |
-| T-016 | タイトル画面(Presentation) | はじめから/つづきからの選択UI | 「はじめから」で新規開始、「つづきから」でT-011のセーブデータをロードできる | 手動プレイで両方の分岐を確認 | T-011 |
-| T-017 | ゲームクリア/ゲームオーバー画面(Presentation) | クリア時・全滅時の専用画面 | ボス撃破でクリア画面、全滅でゲームオーバー画面が表示される | 手動プレイで両方のケースを確認 | T-008, T-016 |
+| T-013 | プレイヤー移動・カメラ(Presentation)(完了) | 新Input Systemを用いた3D移動、追従カメラ | フィールド上でプレイヤーが移動でき、カメラが追従する | PlayModeテスト6件がPassed、手動プレイで移動・カメラ挙動を確認済み | T-001 |
+| T-014 | NPC会話UI(Presentation)(完了) | 会話ウィンドウ、テキスト送り | NPCに話しかけると会話ウィンドウが開き、読み進められる | PlayModeテスト22件がPassed、手動プレイで会話開始〜終了までを確認済み | T-013 |
+| T-015 | 戦闘UI(Presentation)(完了) | コマンド選択UI、HP/MP表示、戦闘ログ | コマンド入力でT-008のユースケースを呼び出し、結果が画面に反映される | PlayModeテスト8件がPassed、手動プレイで1戦闘を最初から最後まで実行し確認済み | T-008, T-013 |
+| T-016 | タイトル画面(Presentation)(完了) | はじめから/つづきからの選択UI | 「はじめから」で新規開始、「つづきから」でT-011のセーブデータをロードできる | PlayModeテスト9件がPassed、手動プレイで両方の分岐を確認済み | T-011 |
+| T-017 | ゲームクリア/ゲームオーバー画面(Presentation)(完了) | クリア時・全滅時の専用画面 | ボス撃破でクリア画面、全滅でゲームオーバー画面が表示される | PlayModeテスト7件がPassed、手動プレイで両方のケースを確認済み | T-008, T-016 |
 | T-018 | 村エリアの実装 | Village Scene、NPC3体以上、フィールドへの接続 | 村シーンが単独でロード可能で、NPC会話とフィールドへの移動ができる | 手動プレイでシーン内を一巡して確認 | T-013, T-014 |
 | T-019 | フィールドエリアの実装 | Field Scene、通常敵エンカウント、ダンジョン入口 | フィールドを探索でき、エンカウントが発生し、ダンジョンへ入れる | 手動プレイでエンカウント発生とダンジョン入口到達を確認 | T-015, T-018 |
 | T-020 | ダンジョンの実装 | Dungeon Scene、通常敵エンカウント、ボス部屋 | ダンジョンを進めて道中戦闘を経てボスに到達できる | 手動プレイで入口からボス部屋まで到達を確認 | T-019 |
