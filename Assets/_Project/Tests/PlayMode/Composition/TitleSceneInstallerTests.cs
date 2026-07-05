@@ -4,6 +4,7 @@ using FloatingIslandsRpg.Application.Save;
 using FloatingIslandsRpg.Application.Scenes;
 using FloatingIslandsRpg.Composition;
 using FloatingIslandsRpg.Composition.Scenes;
+using FloatingIslandsRpg.Infrastructure.MasterData;
 using FloatingIslandsRpg.Presentation.Title;
 using FloatingIslandsRpg.Tests.PlayMode.Title;
 using NUnit.Framework;
@@ -24,6 +25,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
         private Text _errorText;
         private FakeSceneLoader _fakeSceneLoader;
         private GameServices _services;
+        private InitialPlayerDefinition _initialPlayerDefinition;
 
         [TearDown]
         public void TearDown()
@@ -42,6 +44,11 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             {
                 Object.DestroyImmediate(_rootObject);
             }
+
+            if (_initialPlayerDefinition != null)
+            {
+                Object.DestroyImmediate(_initialPlayerDefinition);
+            }
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)
@@ -59,6 +66,11 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
         }
 
         private IEnumerator BuildScene(SaveGameSnapshot snapshot)
+        {
+            yield return BuildScene(snapshot, null);
+        }
+
+        private IEnumerator BuildScene(SaveGameSnapshot snapshot, EquipmentDefinition[] equipmentCatalog)
         {
             _rootObject = new GameObject("Root");
             var root = _rootObject.AddComponent<GameCompositionRoot>();
@@ -87,10 +99,38 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
 
             _titleObject.SetActive(true);
 
+            _initialPlayerDefinition = ScriptableObject.CreateInstance<InitialPlayerDefinition>();
+            SetPrivateField(_initialPlayerDefinition, "_displayName", "Hero");
+            SetPrivateField(_initialPlayerDefinition, "_minLevel", 1);
+            SetPrivateField(_initialPlayerDefinition, "_maxLevel", 10);
+            SetPrivateField(_initialPlayerDefinition, "_baseMaxHp", 20);
+            SetPrivateField(_initialPlayerDefinition, "_baseMaxMp", 5);
+            SetPrivateField(_initialPlayerDefinition, "_baseAttack", 5);
+            SetPrivateField(_initialPlayerDefinition, "_baseDefense", 3);
+            SetPrivateField(_initialPlayerDefinition, "_baseAgility", 5);
+            SetPrivateField(_initialPlayerDefinition, "_baseMagic", 2);
+            // Required so Start()'s ConfigureSaveIntegrityValidation() can call ToExperienceTable()
+            // without throwing (Codex review Major 3); values chosen to keep Level 1/TotalExperience 0
+            // (CreateValidSnapshotPublic()'s fixture) consistent with this table.
+            SetPrivateField(_initialPlayerDefinition, "_cumulativeExperienceByLevel", new[] { 0, 10, 25, 45, 70, 100, 140, 190, 250, 320 });
+
             _installerObject = new GameObject("TitleSceneInstaller");
-            _installerObject.AddComponent<TitleSceneInstaller>();
+            var installer = _installerObject.AddComponent<TitleSceneInstaller>();
+            SetPrivateField(installer, "_initialPlayerDefinition", _initialPlayerDefinition);
+            SetPrivateField(installer, "_equipmentCatalog", equipmentCatalog);
 
             yield return null;
+        }
+
+        private static EquipmentDefinition CreateEquipmentDefinition(string id, FloatingIslandsRpg.Domain.MasterData.EquipmentSlot slot)
+        {
+            var definition = ScriptableObject.CreateInstance<EquipmentDefinition>();
+            SetPrivateField(definition, "_id", id);
+            SetPrivateField(definition, "_displayName", id);
+            SetPrivateField(definition, "_slot", slot);
+            SetPrivateField(definition, "_attackBonus", 0);
+            SetPrivateField(definition, "_defenseBonus", 0);
+            return definition;
         }
 
         [UnityTest]
@@ -101,6 +141,73 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
 
             var controller = _titleObject.GetComponent<TitleScreenController>();
             Assert.IsTrue(controller.IsContinueAvailable);
+        }
+
+        // --- Codex review Major 3: SaveVersion 3 integrity validation wired end-to-end ---
+
+        [UnityTest]
+        public IEnumerator Start_ValidSnapshot_ContinueAvailable()
+        {
+            var snapshot = TitleScreenControllerTests.CreateValidSnapshotPublic();
+            yield return BuildScene(snapshot);
+
+            var controller = _titleObject.GetComponent<TitleScreenController>();
+            Assert.IsTrue(controller.IsContinueAvailable);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_LevelInconsistentWithTotalExperience_ContinueUnavailable()
+        {
+            var snapshot = TitleScreenControllerTests.CreateValidSnapshotPublic();
+            snapshot.Level = 10;
+            snapshot.TotalExperience = 0;
+            yield return BuildScene(snapshot);
+
+            var controller = _titleObject.GetComponent<TitleScreenController>();
+            Assert.IsFalse(controller.IsContinueAvailable);
+            Assert.IsNotEmpty(_errorText.text);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_UnknownEquippedWeaponId_ContinueUnavailable()
+        {
+            var weapon = CreateEquipmentDefinition("equip_known_sword", FloatingIslandsRpg.Domain.MasterData.EquipmentSlot.Weapon);
+            var snapshot = TitleScreenControllerTests.CreateValidSnapshotPublic();
+            snapshot.EquippedWeaponId = "equip_unknown_sword";
+            yield return BuildScene(snapshot, new[] { weapon });
+
+            var controller = _titleObject.GetComponent<TitleScreenController>();
+            Assert.IsFalse(controller.IsContinueAvailable);
+
+            Object.DestroyImmediate(weapon);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_EquippedIdInWrongSlotCategory_ContinueUnavailable()
+        {
+            var armor = CreateEquipmentDefinition("equip_known_armor", FloatingIslandsRpg.Domain.MasterData.EquipmentSlot.Armor);
+            var snapshot = TitleScreenControllerTests.CreateValidSnapshotPublic();
+            snapshot.EquippedWeaponId = "equip_known_armor";
+            yield return BuildScene(snapshot, new[] { armor });
+
+            var controller = _titleObject.GetComponent<TitleScreenController>();
+            Assert.IsFalse(controller.IsContinueAvailable);
+
+            Object.DestroyImmediate(armor);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_ValidEquippedWeaponId_ContinueAvailable()
+        {
+            var weapon = CreateEquipmentDefinition("equip_known_sword", FloatingIslandsRpg.Domain.MasterData.EquipmentSlot.Weapon);
+            var snapshot = TitleScreenControllerTests.CreateValidSnapshotPublic();
+            snapshot.EquippedWeaponId = "equip_known_sword";
+            yield return BuildScene(snapshot, new[] { weapon });
+
+            var controller = _titleObject.GetComponent<TitleScreenController>();
+            Assert.IsTrue(controller.IsContinueAvailable);
+
+            Object.DestroyImmediate(weapon);
         }
 
         [UnityTest]
@@ -158,7 +265,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             var stats = new FloatingIslandsRpg.Domain.Characters.Stats.CharacterStats(1, 20, 5, 5, 3, 5, 2);
             return new FloatingIslandsRpg.Application.Session.PlayerSessionState(
                 SceneId.Battle, stats, 0, 20, 5,
-                new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
+                new FloatingIslandsRpg.Domain.Quests.MainQuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress());
         }
@@ -219,6 +326,19 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             yield return null;
 
             Assert.IsTrue(_continueButton.interactable);
+        }
+
+        [UnityTest]
+        public IEnumerator NewGameRequested_MissingInitialPlayerDefinition_LogsErrorAndDoesNotCreateSession()
+        {
+            yield return BuildScene(null);
+            SetPrivateField(_installerObject.GetComponent<TitleSceneInstaller>(), "_initialPlayerDefinition", null);
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("_initialPlayerDefinition"));
+
+            _newGameButton.onClick.Invoke();
+
+            Assert.IsNull(_services.CurrentSession);
+            Assert.IsNull(_fakeSceneLoader.LastLoadedSceneId);
         }
     }
 }

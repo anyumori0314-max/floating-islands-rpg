@@ -14,10 +14,11 @@ namespace FloatingIslandsRpg.Infrastructure.MasterData
         [SerializeField] private int _defense;
         [SerializeField] private int _agility;
         [SerializeField] private int _magic;
+        [SerializeField] private int _rewardExperience;
 
         public EnemyMasterData ToMasterData()
         {
-            return new EnemyMasterData(_id, _displayName, _maxHp, _maxMp, _attack, _defense, _agility, _magic);
+            return new EnemyMasterData(_id, _displayName, _maxHp, _maxMp, _attack, _defense, _agility, _magic, _rewardExperience);
         }
     }
 }

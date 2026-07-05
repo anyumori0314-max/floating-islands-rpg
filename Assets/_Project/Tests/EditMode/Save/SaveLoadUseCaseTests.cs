@@ -39,7 +39,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Save
             var stats = new CharacterStats(level: 4, maxHp: 60, maxMp: 25, attack: 18, defense: 9, agility: 14, magic: 7);
             var state = new PlayerSessionState(
                 SceneId.Dungeon, stats, totalExperience: 300, currentHp: 40, currentMp: 15,
-                new QuestProgress(), new QuestProgress(), new QuestProgress());
+                new MainQuestProgress(), new QuestProgress(), new QuestProgress());
             state.MainQuest.Start();
             return state;
         }
@@ -143,7 +143,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Save
             Assert.AreEqual(original.TotalExperience, loadResult.State.TotalExperience);
             Assert.AreEqual(original.CurrentHp, loadResult.State.CurrentHp);
             Assert.AreEqual(original.CurrentMp, loadResult.State.CurrentMp);
-            Assert.AreEqual(original.MainQuest.CurrentState, loadResult.State.MainQuest.CurrentState);
+            Assert.AreEqual(original.MainQuest.CurrentStage, loadResult.State.MainQuest.CurrentStage);
         }
     }
 }

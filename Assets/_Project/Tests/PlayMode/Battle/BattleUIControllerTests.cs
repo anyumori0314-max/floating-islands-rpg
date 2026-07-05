@@ -203,5 +203,42 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Battle
 
             Assert.AreEqual(session.Outcome, _controller.CurrentOutcome);
         }
+
+        [Test]
+        public void ShowReward_WithoutLevelUp_AppendsExperienceLineOnly()
+        {
+            var session = CreateSession();
+            _controller.Bind(session);
+
+            _controller.ShowReward(experienceGained: 12, leveledUp: false, newLevel: 1);
+
+            Assert.AreEqual("EXP +12", _logText.text);
+        }
+
+        [Test]
+        public void ShowReward_WithLevelUp_AppendsExperienceAndLevelUpLines()
+        {
+            var session = CreateSession();
+            _controller.Bind(session);
+
+            _controller.ShowReward(experienceGained: 50, leveledUp: true, newLevel: 3);
+
+            StringAssert.Contains("EXP +50", _logText.text);
+            StringAssert.Contains("Level Up! Lv.3", _logText.text);
+        }
+
+        [Test]
+        public void ShowReward_AfterBattleLog_AppendsRewardAfterExistingLog()
+        {
+            var session = CreateSession(randomRoll: 0.0);
+            _controller.Bind(session);
+            _attackButton.onClick.Invoke();
+            var logAfterAttack = _logText.text;
+
+            _controller.ShowReward(experienceGained: 5, leveledUp: false, newLevel: 1);
+
+            StringAssert.StartsWith(logAfterAttack, _logText.text);
+            StringAssert.Contains("EXP +5", _logText.text);
+        }
     }
 }

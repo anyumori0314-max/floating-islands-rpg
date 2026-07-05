@@ -1,3 +1,4 @@
+using System;
 using FloatingIslandsRpg.Domain.Quests;
 using FloatingIslandsRpg.Presentation.Player;
 using UnityEngine;
@@ -16,6 +17,11 @@ namespace FloatingIslandsRpg.Presentation.Dialogue
         private bool _subscribedToClosed;
 
         public QuestProgress LinkedQuest { get; set; }
+
+        // Raised whenever this NPC's dialogue successfully opens. Carries no quest logic itself
+        // (PROJECT.md T-021: Presentation only calls UseCases / raises events); a Composition
+        // scene installer subscribes and decides what, if anything, that means for quest state.
+        public event Action DialogueStarted;
 
         private void OnEnable()
         {
@@ -95,6 +101,8 @@ namespace FloatingIslandsRpg.Presentation.Dialogue
             {
                 LinkedQuest.Start();
             }
+
+            DialogueStarted?.Invoke();
 
             _dialogueBoxView.Closed += OnDialogueClosed;
             _subscribedToClosed = true;

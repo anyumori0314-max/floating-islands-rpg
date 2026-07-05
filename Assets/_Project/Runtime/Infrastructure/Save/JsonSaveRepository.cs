@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using FloatingIslandsRpg.Application.Save;
+using FloatingIslandsRpg.Domain.MasterData;
+using FloatingIslandsRpg.Domain.Progression;
 using UnityEngine;
 
 namespace FloatingIslandsRpg.Infrastructure.Save
@@ -7,6 +10,14 @@ namespace FloatingIslandsRpg.Infrastructure.Save
     public sealed class JsonSaveRepository : ISaveRepository
     {
         private readonly FileSystemSaveStorage _storage;
+
+        // Optional (Codex review Major 3), mirroring LoadGameUseCase: when unset, IsRestorable()
+        // below validates exactly as it did before SaveVersion 3 integrity checks existed. Without
+        // these, a primary save that is well-formed JSON but fails the new Level/TotalExperience or
+        // equipment-id checks would never be recognized as unrestorable here, so TryLoad would
+        // never fall back to a valid backup for that specific failure mode.
+        public ExperienceTable ExperienceTable { get; set; }
+        public IReadOnlyDictionary<string, EquipmentMasterData> EquipmentCatalog { get; set; }
 
         public JsonSaveRepository(FileSystemSaveStorage storage)
         {
@@ -49,7 +60,7 @@ namespace FloatingIslandsRpg.Infrastructure.Save
         // valid game state (PlayerSessionStateMapper.FromSnapshot succeeds). A syntactically valid
         // but semantically invalid snapshot (e.g. MaxHp = 0, CurrentHp > MaxHp) must not be treated
         // as usable, or a corrupted-but-parsable primary would shadow a valid backup.
-        private static bool TryParseAndValidate(string json, out SaveGameSnapshot snapshot)
+        private bool TryParseAndValidate(string json, out SaveGameSnapshot snapshot)
         {
             if (!TryParse(json, out var parsed) || !IsRestorable(parsed))
             {
@@ -77,11 +88,11 @@ namespace FloatingIslandsRpg.Infrastructure.Save
             }
         }
 
-        private static bool IsRestorable(SaveGameSnapshot snapshot)
+        private bool IsRestorable(SaveGameSnapshot snapshot)
         {
             try
             {
-                PlayerSessionStateMapper.FromSnapshot(snapshot);
+                PlayerSessionStateMapper.FromSnapshot(snapshot, ExperienceTable, EquipmentCatalog);
                 return true;
             }
             catch (ArgumentException)

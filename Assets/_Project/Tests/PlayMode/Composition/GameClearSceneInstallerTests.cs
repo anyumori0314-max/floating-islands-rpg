@@ -79,7 +79,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             var stats = new CharacterStats(2, 25, 8, 7, 3, 6, 2);
             return new PlayerSessionState(
                 SceneId.Battle, stats, 0, currentHp, 8,
-                new QuestProgress(), new QuestProgress(), new QuestProgress());
+                new MainQuestProgress(), new QuestProgress(), new QuestProgress());
         }
 
         private IEnumerator BuildScene(BattleOutcome? lastOutcome, PlayerSessionState rematchSnapshot)
@@ -211,6 +211,108 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
         {
             var snapshot = BuildRematchSnapshot(currentHp: 12);
             yield return BuildScene(BattleOutcome.PlayerDefeat, snapshot);
+            _fakeSceneLoader.FailWith = new System.Exception("Simulated transition failure");
+            LogAssert.Expect(LogType.Exception, new System.Text.RegularExpressions.Regex("Simulated transition failure"));
+
+            _retryButton.onClick.Invoke();
+            yield return null;
+
+            Assert.IsTrue(_retryButton.interactable);
+        }
+
+        // --- Codex review Major 2: Retry must restore the original PendingBattleContext ---
+
+        [UnityTest]
+        public IEnumerator RetryButtonClick_RegularFieldPendingBattle_RestoresFieldThenLoadsBattleAdditively()
+        {
+            var snapshot = BuildRematchSnapshot(currentHp: 12);
+            yield return BuildScene(BattleOutcome.PlayerDefeat, snapshot);
+            _services.RematchPendingBattle = new PendingBattleContext(SceneId.Field, isBossEncounter: false);
+
+            _retryButton.onClick.Invoke();
+            yield return null;
+
+            Assert.AreEqual(2, _fakeSceneLoader.LoadCalls.Count);
+            Assert.AreEqual((SceneId.Field, SceneLoadMode.Single), _fakeSceneLoader.LoadCalls[0]);
+            Assert.AreEqual((SceneId.Battle, SceneLoadMode.Additive), _fakeSceneLoader.LoadCalls[1]);
+            Assert.IsNotNull(_services.PendingBattle);
+            Assert.AreEqual(SceneId.Field, _services.PendingBattle.ReturnSceneId);
+            Assert.IsFalse(_services.PendingBattle.IsBossEncounter);
+        }
+
+        [UnityTest]
+        public IEnumerator RetryButtonClick_RegularDungeonPendingBattle_RestoresDungeonThenLoadsBattleAdditively()
+        {
+            var snapshot = BuildRematchSnapshot(currentHp: 12);
+            yield return BuildScene(BattleOutcome.PlayerDefeat, snapshot);
+            _services.RematchPendingBattle = new PendingBattleContext(SceneId.Dungeon, isBossEncounter: false);
+
+            _retryButton.onClick.Invoke();
+            yield return null;
+
+            Assert.AreEqual(2, _fakeSceneLoader.LoadCalls.Count);
+            Assert.AreEqual((SceneId.Dungeon, SceneLoadMode.Single), _fakeSceneLoader.LoadCalls[0]);
+            Assert.AreEqual((SceneId.Battle, SceneLoadMode.Additive), _fakeSceneLoader.LoadCalls[1]);
+            Assert.IsNotNull(_services.PendingBattle);
+            Assert.AreEqual(SceneId.Dungeon, _services.PendingBattle.ReturnSceneId);
+            Assert.IsFalse(_services.PendingBattle.IsBossEncounter);
+        }
+
+        [UnityTest]
+        public IEnumerator RetryButtonClick_BossPendingBattle_RestoresDungeonAndIsBossEncounterTrue()
+        {
+            var snapshot = BuildRematchSnapshot(currentHp: 12);
+            yield return BuildScene(BattleOutcome.PlayerDefeat, snapshot);
+            _services.RematchPendingBattle = new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true);
+
+            _retryButton.onClick.Invoke();
+            yield return null;
+
+            Assert.AreEqual(2, _fakeSceneLoader.LoadCalls.Count);
+            Assert.AreEqual((SceneId.Dungeon, SceneLoadMode.Single), _fakeSceneLoader.LoadCalls[0]);
+            Assert.AreEqual((SceneId.Battle, SceneLoadMode.Additive), _fakeSceneLoader.LoadCalls[1]);
+            Assert.IsNotNull(_services.PendingBattle);
+            Assert.AreEqual(SceneId.Dungeon, _services.PendingBattle.ReturnSceneId);
+            Assert.IsTrue(_services.PendingBattle.IsBossEncounter);
+        }
+
+        [UnityTest]
+        public IEnumerator RetryButtonClick_WithoutRematchPendingBattle_FallsBackToSingleModeBattleLoad()
+        {
+            // No PendingBattle was ever recorded (e.g. Battle was entered outside the normal
+            // Field/Dungeon flow) -- Retry must still work, exactly as it did before Major 2.
+            var snapshot = BuildRematchSnapshot(currentHp: 12);
+            yield return BuildScene(BattleOutcome.PlayerDefeat, snapshot);
+
+            _retryButton.onClick.Invoke();
+            yield return null;
+
+            Assert.AreEqual(1, _fakeSceneLoader.LoadCalls.Count);
+            Assert.AreEqual((SceneId.Battle, SceneLoadMode.Single), _fakeSceneLoader.LoadCalls[0]);
+        }
+
+        [UnityTest]
+        public IEnumerator RetryButtonClick_RestoresPendingBattle_AsDefensiveCopyNotSameReferenceAsRematch()
+        {
+            var snapshot = BuildRematchSnapshot(currentHp: 12);
+            yield return BuildScene(BattleOutcome.PlayerDefeat, snapshot);
+            var rematchPendingBattle = new PendingBattleContext(SceneId.Field, isBossEncounter: false);
+            _services.RematchPendingBattle = rematchPendingBattle;
+
+            _retryButton.onClick.Invoke();
+            yield return null;
+
+            Assert.AreNotSame(rematchPendingBattle, _services.PendingBattle);
+            // The source used for a subsequent Retry must remain untouched by this Retry's battle.
+            Assert.AreSame(rematchPendingBattle, _services.RematchPendingBattle);
+        }
+
+        [UnityTest]
+        public IEnumerator RetryButtonClick_BossPendingBattle_TransitionFails_RestoresButtonInteractable()
+        {
+            var snapshot = BuildRematchSnapshot(currentHp: 12);
+            yield return BuildScene(BattleOutcome.PlayerDefeat, snapshot);
+            _services.RematchPendingBattle = new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true);
             _fakeSceneLoader.FailWith = new System.Exception("Simulated transition failure");
             LogAssert.Expect(LogType.Exception, new System.Text.RegularExpressions.Regex("Simulated transition failure"));
 

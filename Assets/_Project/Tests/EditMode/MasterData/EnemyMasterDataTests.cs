@@ -14,9 +14,10 @@ namespace FloatingIslandsRpg.Tests.EditMode.MasterData
             int attack = 5,
             int defense = 2,
             int agility = 3,
-            int magic = 0)
+            int magic = 0,
+            int rewardExperience = 10)
         {
-            return new EnemyMasterData(id, displayName, maxHp, maxMp, attack, defense, agility, magic);
+            return new EnemyMasterData(id, displayName, maxHp, maxMp, attack, defense, agility, magic, rewardExperience);
         }
 
         [Test]
@@ -30,6 +31,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.MasterData
             Assert.AreEqual("Slime", enemy.DisplayName);
             Assert.AreEqual(20, enemy.MaxHp);
             Assert.AreEqual(5, enemy.Attack);
+            Assert.AreEqual(10, enemy.RewardExperience);
         }
 
         [TestCase(null)]
@@ -68,6 +70,23 @@ namespace FloatingIslandsRpg.Tests.EditMode.MasterData
             // Act & Assert
             Assert.Throws<ArgumentOutOfRangeException>(() =>
                 CreateEnemy(maxMp: maxMp, attack: attack, defense: defense, agility: agility, magic: magic));
+        }
+
+        [Test]
+        public void Constructor_NegativeRewardExperience_ThrowsArgumentOutOfRangeException()
+        {
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => CreateEnemy(rewardExperience: -1));
+        }
+
+        [Test]
+        public void Constructor_RewardExperienceZero_CreatesInstance()
+        {
+            // Act
+            var enemy = CreateEnemy(rewardExperience: 0);
+
+            // Assert
+            Assert.AreEqual(0, enemy.RewardExperience);
         }
     }
 }

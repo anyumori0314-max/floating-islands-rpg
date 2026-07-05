@@ -12,6 +12,7 @@ namespace FloatingIslandsRpg.Domain.MasterData
         public int Defense { get; }
         public int Agility { get; }
         public int Magic { get; }
+        public int RewardExperience { get; }
 
         public EnemyMasterData(
             string id,
@@ -21,7 +22,8 @@ namespace FloatingIslandsRpg.Domain.MasterData
             int attack,
             int defense,
             int agility,
-            int magic)
+            int magic,
+            int rewardExperience)
         {
             if (string.IsNullOrWhiteSpace(id))
             {
@@ -63,6 +65,11 @@ namespace FloatingIslandsRpg.Domain.MasterData
                 throw new ArgumentOutOfRangeException(nameof(magic), magic, "Magic must be 0 or greater.");
             }
 
+            if (rewardExperience < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(rewardExperience), rewardExperience, "RewardExperience must be 0 or greater.");
+            }
+
             Id = id;
             DisplayName = displayName;
             MaxHp = maxHp;
@@ -71,6 +78,7 @@ namespace FloatingIslandsRpg.Domain.MasterData
             Defense = defense;
             Agility = agility;
             Magic = magic;
+            RewardExperience = rewardExperience;
         }
     }
 }

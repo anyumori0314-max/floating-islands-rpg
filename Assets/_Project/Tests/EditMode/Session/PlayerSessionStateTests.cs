@@ -20,7 +20,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
             int totalExperience = 0,
             int? currentHp = null,
             int? currentMp = null,
-            QuestProgress mainQuest = null,
+            MainQuestProgress mainQuest = null,
             QuestProgress subQuest1 = null,
             QuestProgress subQuest2 = null)
         {
@@ -31,7 +31,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
                 totalExperience,
                 currentHp ?? resolvedStats.MaxHp,
                 currentMp ?? resolvedStats.MaxMp,
-                mainQuest ?? new QuestProgress(),
+                mainQuest ?? new MainQuestProgress(),
                 subQuest1 ?? new QuestProgress(),
                 subQuest2 ?? new QuestProgress());
         }
@@ -45,7 +45,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
             // Assert
             Assert.AreEqual(SceneId.Field, state.CurrentSceneId);
             Assert.AreEqual(50, state.TotalExperience);
-            Assert.AreEqual(QuestState.NotStarted, state.MainQuest.CurrentState);
+            Assert.AreEqual(MainQuestStage.NotStarted, state.MainQuest.CurrentStage);
         }
 
         [Test]
@@ -60,7 +60,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
         {
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() =>
-                new PlayerSessionState(SceneId.Village, null, 0, 0, 0, new QuestProgress(), new QuestProgress(), new QuestProgress()));
+                new PlayerSessionState(SceneId.Village, null, 0, 0, 0, new MainQuestProgress(), new QuestProgress(), new QuestProgress()));
         }
 
         [Test]
@@ -100,7 +100,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
         {
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() =>
-                new PlayerSessionState(SceneId.Village, CreateStats(), 0, 0, 0, new QuestProgress(), null, new QuestProgress()));
+                new PlayerSessionState(SceneId.Village, CreateStats(), 0, 0, 0, new MainQuestProgress(), null, new QuestProgress()));
         }
 
         [Test]
@@ -108,7 +108,7 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
         {
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() =>
-                new PlayerSessionState(SceneId.Village, CreateStats(), 0, 0, 0, new QuestProgress(), new QuestProgress(), null));
+                new PlayerSessionState(SceneId.Village, CreateStats(), 0, 0, 0, new MainQuestProgress(), new QuestProgress(), null));
         }
 
         [Test]
@@ -206,6 +206,58 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
         }
 
         [Test]
+        public void ApplyStatGrowth_HigherLevel_UpdatesStatsAndFullyHealsHpAndMp()
+        {
+            // Arrange
+            var state = CreateState(stats: CreateStats(maxHp: 20, maxMp: 5));
+            state.SetCurrentHp(1);
+            state.SetCurrentMp(0);
+            var newStats = new CharacterStats(2, 30, 8, 12, 6, 6, 1);
+
+            // Act
+            state.ApplyStatGrowth(newStats);
+
+            // Assert
+            Assert.AreSame(newStats, state.Stats);
+            Assert.AreEqual(30, state.CurrentHp);
+            Assert.AreEqual(8, state.CurrentMp);
+        }
+
+        [Test]
+        public void ApplyStatGrowth_SameLevel_IsAllowed()
+        {
+            // Arrange
+            var state = CreateState(stats: CreateStats(maxHp: 20, maxMp: 5));
+            var sameLevelStats = new CharacterStats(1, 20, 5, 11, 5, 5, 0);
+
+            // Act & Assert
+            Assert.DoesNotThrow(() => state.ApplyStatGrowth(sameLevelStats));
+            Assert.AreSame(sameLevelStats, state.Stats);
+        }
+
+        [Test]
+        public void ApplyStatGrowth_LowerLevel_ThrowsArgumentOutOfRangeException()
+        {
+            // Arrange
+            var stats = CreateStats();
+            var state = CreateState(stats: new CharacterStats(3, stats.MaxHp, stats.MaxMp, stats.Attack, stats.Defense, stats.Agility, stats.Magic));
+            var lowerLevelStats = new CharacterStats(2, 20, 5, 8, 4, 4, 0);
+
+            // Act & Assert
+            Assert.Throws<ArgumentOutOfRangeException>(() => state.ApplyStatGrowth(lowerLevelStats));
+        }
+
+        [Test]
+        public void ApplyStatGrowth_NullStats_ThrowsArgumentNullException()
+        {
+            // Arrange
+            var state = CreateState();
+
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => state.ApplyStatGrowth(null));
+        }
+
+        [Test]
         public void TwoInstances_AreIndependent()
         {
             // Arrange
@@ -219,8 +271,92 @@ namespace FloatingIslandsRpg.Tests.EditMode.Session
             // Assert
             Assert.AreEqual(SceneId.Field, stateA.CurrentSceneId);
             Assert.AreEqual(SceneId.Village, stateB.CurrentSceneId);
-            Assert.AreEqual(QuestState.InProgress, stateA.MainQuest.CurrentState);
-            Assert.AreEqual(QuestState.NotStarted, stateB.MainQuest.CurrentState);
+            Assert.AreEqual(MainQuestStage.ExploreField, stateA.MainQuest.CurrentStage);
+            Assert.AreEqual(MainQuestStage.NotStarted, stateB.MainQuest.CurrentStage);
+        }
+
+        [Test]
+        public void NewState_HasEmptyInventoryAndEquipment()
+        {
+            var state = CreateState();
+
+            Assert.AreEqual(0, state.Inventory.GetQuantity("item_small_potion"));
+            Assert.IsNull(state.Equipment.EquippedWeaponId);
+            Assert.IsNull(state.Equipment.EquippedArmorId);
+        }
+
+        [Test]
+        public void ClaimReward_FirstTime_ReturnsTrue()
+        {
+            var state = CreateState();
+
+            var result = state.ClaimReward("field_pickup_1");
+
+            Assert.IsTrue(result);
+            Assert.IsTrue(state.HasClaimedReward("field_pickup_1"));
+        }
+
+        [Test]
+        public void ClaimReward_SecondTime_ReturnsFalse()
+        {
+            var state = CreateState();
+            state.ClaimReward("field_pickup_1");
+
+            var result = state.ClaimReward("field_pickup_1");
+
+            Assert.IsFalse(result);
+        }
+
+        [Test]
+        public void ClaimReward_InvalidRewardId_ThrowsArgumentException()
+        {
+            var state = CreateState();
+
+            Assert.Throws<ArgumentException>(() => state.ClaimReward(""));
+        }
+
+        [Test]
+        public void ClaimedRewardIds_ReturnsDefensiveCopy()
+        {
+            var state = CreateState();
+            state.ClaimReward("field_pickup_1");
+
+            var snapshot = (System.Collections.Generic.List<string>)state.ClaimedRewardIds;
+            snapshot.Add("field_pickup_2");
+
+            Assert.IsFalse(state.HasClaimedReward("field_pickup_2"));
+        }
+
+        [Test]
+        public void ConstructWithSavedInventoryEquipmentAndClaimedRewards_RestoresAllThree()
+        {
+            var stats = CreateStats();
+            var inventory = new FloatingIslandsRpg.Domain.Inventory.Inventory();
+            inventory.Add("item_small_potion", 2);
+            var equipment = new FloatingIslandsRpg.Domain.Inventory.EquipmentLoadout("equip_rusty_sword", null);
+
+            var state = new PlayerSessionState(
+                SceneId.Village, stats, 0, stats.MaxHp, stats.MaxMp,
+                new MainQuestProgress(), new QuestProgress(), new QuestProgress(),
+                inventory, equipment, new[] { "field_pickup_1" });
+
+            Assert.AreEqual(2, state.Inventory.GetQuantity("item_small_potion"));
+            Assert.AreEqual("equip_rusty_sword", state.Equipment.EquippedWeaponId);
+            Assert.IsTrue(state.HasClaimedReward("field_pickup_1"));
+        }
+
+        [Test]
+        public void ConstructWithoutInventoryEquipmentOrClaimedRewards_DefaultsToEmpty()
+        {
+            var stats = CreateStats();
+
+            var state = new PlayerSessionState(
+                SceneId.Village, stats, 0, stats.MaxHp, stats.MaxMp,
+                new MainQuestProgress(), new QuestProgress(), new QuestProgress());
+
+            Assert.AreEqual(0, state.Inventory.GetQuantity("item_small_potion"));
+            Assert.IsNull(state.Equipment.EquippedWeaponId);
+            Assert.AreEqual(0, state.ClaimedRewardIds.Count);
         }
     }
 }
