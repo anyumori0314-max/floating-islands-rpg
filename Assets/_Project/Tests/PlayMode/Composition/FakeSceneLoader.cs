@@ -15,6 +15,10 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
         // transition-failure recovery path without a real SceneManager.LoadSceneAsync failure.
         public Exception FailWith { get; set; }
 
+        // When set, UnloadAsync throws this instead of completing, so tests can exercise the
+        // additive-unload-failure recovery path without a real SceneManager.UnloadSceneAsync failure.
+        public Exception UnloadFailWith { get; set; }
+
         public Task LoadAsync(SceneId sceneId, SceneLoadMode loadMode)
         {
             LoadCallCount++;
@@ -32,6 +36,12 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
         public Task UnloadAsync(SceneId sceneId)
         {
             LastUnloadedSceneId = sceneId;
+
+            if (UnloadFailWith != null)
+            {
+                return Task.FromException(UnloadFailWith);
+            }
+
             return Task.CompletedTask;
         }
     }

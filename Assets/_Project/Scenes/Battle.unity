@@ -227,6 +227,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 604f05b70a305574a8e222d8de0caaa7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: FloatingIslandsRpg.Composition::FloatingIslandsRpg.Composition.Scenes.BattleSceneInstaller
+  _battleCamera: {fileID: 1632373724}
+  _battleAudioListener: {fileID: 1632373723}
+  _battleEventSystem: {fileID: 115295556}
 --- !u!4 &1043152491
 Transform:
   m_ObjectHideFlags: 0
