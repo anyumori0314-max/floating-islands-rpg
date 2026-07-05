@@ -227,6 +227,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 604f05b70a305574a8e222d8de0caaa7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: FloatingIslandsRpg.Composition::FloatingIslandsRpg.Composition.Scenes.BattleSceneInstaller
+  _fallbackPlayerDefinition: {fileID: 11400000, guid: d6ede8ae38d20d64a87bede65a27109c, type: 2}
+  _regularEnemies:
+  - {fileID: 11400000, guid: 5dadb765aa2a14946b086f8eead6d5c9, type: 2}
+  - {fileID: 11400000, guid: 17df5ad97ae0e8b4cbc76ac3d388708d, type: 2}
+  - {fileID: 11400000, guid: a58b49405cf466348920d845b040c388, type: 2}
+  _bossEnemy: {fileID: 11400000, guid: d19e602963151414d983bded1f9d82f8, type: 2}
+  _equipmentCatalog:
+  - {fileID: 11400000, guid: 6f021ff7f23f63941a396eff1f750bee, type: 2}
+  - {fileID: 11400000, guid: 5edfbf5a2aed5ea48a3864bb3fd76dcb, type: 2}
+  - {fileID: 11400000, guid: 565f2976e351eb542bc8165a45378284, type: 2}
+  - {fileID: 11400000, guid: fa723cd69bbecd142be4c61906a41d72, type: 2}
+  _victoryItemReward: {fileID: 11400000, guid: b79cd241775aeb04d9aace97fcec0861, type: 2}
   _battleCamera: {fileID: 1632373724}
   _battleAudioListener: {fileID: 1632373723}
   _battleEventSystem: {fileID: 115295556}

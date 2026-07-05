@@ -1,8 +1,11 @@
 using System.Collections;
 using System.Reflection;
 using FloatingIslandsRpg.Application.Scenes;
+using FloatingIslandsRpg.Application.Session;
 using FloatingIslandsRpg.Composition;
 using FloatingIslandsRpg.Composition.Scenes;
+using FloatingIslandsRpg.Domain.Characters.Stats;
+using FloatingIslandsRpg.Domain.Quests;
 using FloatingIslandsRpg.Presentation.Encounters;
 using FloatingIslandsRpg.Presentation.Scenes;
 using NUnit.Framework;
@@ -64,9 +67,15 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
 
         private IEnumerator BuildScene()
         {
+            yield return BuildScene(null);
+        }
+
+        private IEnumerator BuildScene(PlayerSessionState currentSession)
+        {
             _rootObject = new GameObject("Root");
             var root = _rootObject.AddComponent<GameCompositionRoot>();
             _services = root.Services;
+            _services.CurrentSession = currentSession;
             _fakeSceneLoader = new FakeSceneLoader();
             _services.SceneTransitionUseCase = new SceneTransitionUseCase(_fakeSceneLoader);
 
@@ -213,6 +222,54 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
 
             Assert.IsNull(_services.PendingBattle);
             Assert.IsNull(_fakeSceneLoader.LastLoadedSceneId);
+        }
+
+        private static PlayerSessionState CreateSessionAtStage(MainQuestStage stage)
+        {
+            var mainQuest = new MainQuestProgress();
+            if (stage >= MainQuestStage.ExploreField)
+            {
+                mainQuest.Start();
+            }
+
+            if (stage >= MainQuestStage.EnterDungeon)
+            {
+                mainQuest.AdvanceToEnterDungeon();
+            }
+
+            var stats = new CharacterStats(1, 20, 5, 5, 3, 5, 2);
+            return new PlayerSessionState(
+                SceneId.Dungeon, stats, 0, 20, 5, mainQuest, new QuestProgress(), new QuestProgress());
+        }
+
+        [UnityTest]
+        public IEnumerator Start_MainQuestAtEnterDungeon_AdvancesToDefeatBoss()
+        {
+            var session = CreateSessionAtStage(MainQuestStage.EnterDungeon);
+            yield return BuildScene(session);
+
+            Assert.AreEqual(MainQuestStage.DefeatBoss, session.MainQuest.CurrentStage);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_MainQuestAtExploreField_DoesNotSkipToDefeatBoss()
+        {
+            var session = CreateSessionAtStage(MainQuestStage.ExploreField);
+            yield return BuildScene(session);
+
+            Assert.AreEqual(MainQuestStage.ExploreField, session.MainQuest.CurrentStage);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_WithoutCurrentSession_DoesNotThrowAndSceneStillFunctions()
+        {
+            yield return BuildScene(null);
+
+            var encounterController = _encounterObject.GetComponent<FieldEncounterController>();
+            InvokeEvent(encounterController, "EncounterTriggered");
+            yield return null;
+
+            Assert.IsNotNull(_services.PendingBattle);
         }
     }
 }

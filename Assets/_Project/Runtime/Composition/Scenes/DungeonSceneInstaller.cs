@@ -1,4 +1,5 @@
 using System;
+using FloatingIslandsRpg.Application.Quests;
 using FloatingIslandsRpg.Application.Scenes;
 using FloatingIslandsRpg.Infrastructure.Battle;
 using FloatingIslandsRpg.Presentation.Encounters;
@@ -9,6 +10,8 @@ namespace FloatingIslandsRpg.Composition.Scenes
 {
     public sealed class DungeonSceneInstaller : MonoBehaviour
     {
+        private readonly AdvanceMainQuestUseCase _advanceMainQuestUseCase = new AdvanceMainQuestUseCase();
+
         private GameServices _services;
         private FieldEncounterController _encounterController;
         private BossEncounterTrigger _bossEncounterTrigger;
@@ -22,6 +25,13 @@ namespace FloatingIslandsRpg.Composition.Scenes
 
         private void Start()
         {
+            // Reaching Dungeon is recorded regardless of how the player got here (PROJECT.md
+            // T-021); safely no-ops if the quest is not at EnterDungeon yet (e.g. never started).
+            if (_services.CurrentSession != null)
+            {
+                _advanceMainQuestUseCase.Execute(_services.CurrentSession.MainQuest, MainQuestEvent.DungeonReached);
+            }
+
             _activityGate = FindFirstObjectByType<FieldActivityGate>();
 
             _encounterController = FindFirstObjectByType<FieldEncounterController>();

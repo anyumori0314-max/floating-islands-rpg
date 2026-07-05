@@ -1,7 +1,7 @@
 # PROJECT.md
 
 > floating-islands-rpg の設計方針・スコープ・実装タスクを一元管理するドキュメント。
-> 最終更新: 2026-07-05 (T-018〜T-020完了に対するCodex最終再レビュー残存Major1件[BattleSceneInstallerのScene境界不明瞭なコンポーネント取得]への対応を反映。`feature/t018-t020`ブランチ、`main`へは未マージ・未コミット。Codex再レビュー前)
+> 最終更新: 2026-07-06 (T-018〜T-020は`feature/t018-t020`ブランチからPull Request #7を経て`main`へマージ済み[マージコミット`e49e91d`]。T-021〜T-024を正式Taskとして追加し、`feature/t021-t024-progression-systems`ブランチで実装。T-022・T-021・T-023・T-024すべて完了後、Codex第三者レビュー[Critical 0・Major 3・Minor 1、判定「不合格」]を受け、指摘範囲を必要最小限で修正済み[4.設計「T-021〜T-024 Codex第三者レビュー指摘対応」参照]。全EditMode 380件・全PlayMode 235件Passed[PlayMode 3回連続確認済み]、実機Play Modeでの通しプレイ確認済み。`main`へは未マージ・未コミット、Codex第三者再レビュー前)
 
 ---
 
@@ -373,6 +373,136 @@ Assets/
 - **手動確認**: Field通常戦勝利→Field復帰(Camera/AudioListener/EventSystem/PlayerMovement復旧、`_battleCamera`等がBattle Scene内の実オブジェクトへ正しく解決されていることを実行時に確認)、Dungeon通常戦勝利→Dungeon復帰、Dungeonボス戦勝利→GameClear(GAME CLEAR!)、ボス戦敗北→GameClear(GAME OVER)をすべて実機Play Modeで再確認済み。アンロード失敗時の復旧は、実際のSceneManagerを意図的に破壊するリスクがあるため実機再現は行わず、自動テスト(9件: 既存5件+新規4件)を正式な確認方法とした。
 - **Codex再レビュー前の状態**。
 
+### T-021〜T-024 正式仕様(本セッションで承認・追加)
+
+ユーザー承認済みの正式Task定義。実装順は依存関係の都合によりTask番号順ではなく **T-022 → T-021 → T-023 → T-024** とする。T-022・T-021・T-023・T-024はすべて本セッションで完了・合格した(下記参照)。
+
+#### T-021 メインクエスト進行・完了ロジック(完了)
+- **目的**: Villageで開始したメインクエストを、Field、Dungeon、Boss戦を経由して完了できるようにする。
+- **依存**: T-007, T-014, T-018, T-019, T-020。
+- **完了条件**: Villageの指定NPCとの会話でメインクエストを開始できる。Field到達・Dungeon到達・Boss撃破をそれぞれ進行条件として記録できる。必要な段階を順番に通過した場合だけCompletedへ遷移できる。条件未達での完了を拒否する。進行のスキップ・逆行・重複完了を拒否する。Scene遷移後も進行状態を保持する。New Gameで初期化される。Continueで復元される。Retryで不正に巻き戻らない。クエスト完了後だけGameClearへ到達できる。条件未達のBoss勝利ではGameClearへ進まない。
+
+**実装内容:**
+- **`MainQuestStage`(新設、Domain）**: `NotStarted/ExploreField/EnterDungeon/DefeatBoss/Completed`の5値enum。
+- **`MainQuestProgress`(新設、Domain）**: `CurrentStage`を保持する状態機械。`Start()`/`AdvanceToEnterDungeon()`/`AdvanceToDefeatBoss()`/`Complete()`はそれぞれ直前の段階からのみ遷移可能で、それ以外は`InvalidOperationException`を送出する(既存`QuestProgress`と同じ厳格な検証スタイル)。**既存の`QuestProgress`/`QuestState`は無変更**(SubQuest1/SubQuest2は引き続きQuestProgressを使用)。
+- **`MainQuestEvent`/`MainQuestAdvanceResult`(新設、Application）**: `MainQuestEvent`は`FieldReached/DungeonReached/BossDefeated`の3値。`MainQuestAdvanceResult`は`Advanced/Rejected`の2値。
+- **`StartMainQuestUseCase`/`AdvanceMainQuestUseCase`(新設、Application/Quests/）**: `AdvanceMainQuestUseCase.Execute(progress, event)`は現在の段階とイベントが一致する場合のみ進行し、一致しない場合は例外を投げず`Rejected`を返す(Field/Dungeonへの再訪問、クエスト未開始でのイベント到達、重複イベントをすべて安全なno-opにするため)。`progress`が`null`の場合のみ`ArgumentNullException`。
+- **`PlayerSessionState.MainQuest`の型変更**: `QuestProgress`から`MainQuestProgress`へ変更(プロパティ名は維持)。`SubQuest1`/`SubQuest2`は`QuestProgress`のまま。
+- **`NpcInteractable`**: `event Action DialogueStarted`を新設(会話が実際に開始した時点で発火)。既存の`LinkedQuest`/`QuestProgress`連動ロジックは変更せず維持(責務混在を避けるため、DialogueStartedはクエストロジックを一切持たない純粋なPresentationイベント)。
+- **`VillageSceneInstaller`**: 全NPCへ`LinkedQuest`を一律設定していた旧ロジックを削除し、`[SerializeField] NpcInteractable _mainQuestGiver`(Inspector参照、Village.unityで`Elder`を指定)の`DialogueStarted`を購読して`StartMainQuestUseCase`を呼ぶだけの構成に変更。
+- **`FieldSceneInstaller`/`DungeonSceneInstaller`**: `Start()`で(`CurrentSession`が存在する場合)それぞれ`MainQuestEvent.FieldReached`/`DungeonReached`を発行。到達した段階に一致しない場合は安全に無視されるため、再訪問やクエスト未開始でも例外・不整合は発生しない。
+- **`BattleSceneInstaller`**: ボス勝利時に`MainQuestEvent.BossDefeated`を発行し、結果が`MainQuestStage.Completed`になった場合のみ`GameClear`へ遷移する。`CurrentSession`が存在しない場合や、メインクエストが`DefeatBoss`段階に達していない場合(条件未達)は、`Debug.LogError`で明確に記録した上でDungeonへ復帰する(既存の通常戦復帰経路`ReturnToFieldAsync`を再利用)。
+- **セーブ拡張(SaveVersion 1→2)**: `SaveGameSnapshot`に`MainQuestStage`(新)を追加し、旧`MainQuestState`(QuestState)フィールドはv1読込専用として保持。`PlayerSessionStateMapper.FromSnapshot`はv1・v2両方を受け付け、v1の場合は`MainQuestState`(NotStarted/InProgress/Completed)を`MainQuestStage`(NotStarted/ExploreField/Completed)へ安全に移行する(v1のInProgressはどの段階か判別不能なため、安全な初期値として最も早い進行中段階`ExploreField`へ復元)。v1・v2以外のバージョンは引き続き`NotSupportedException`。
+- **今回のスコープ外**: サブクエストのNPC紐付け(T-025)、クエストログUI。
+- **テスト**: EditMode新規32件(`MainQuestProgressTests`10、`StartMainQuestUseCaseTests`5、`AdvanceMainQuestUseCaseTests`11、`PlayerSessionStateMapperTests`関連純増6[v1移行3件・不正値2件・複数段階往復1件、旧`FromSnapshot_InvalidQuestState`テストは`FromSnapshot_InvalidMainQuestStage`へ置換])。PlayMode新規12件(`NpcInteractableTests`+2、`VillageSceneInstallerTests`純増2[旧2件を新4件へ置換]、`FieldSceneInstallerTests`+3、`DungeonSceneInstallerTests`+3、`BattleSceneInstallerTests`+2)。
+- **全体テスト結果**: 全EditMode 266件(234→266)、全PlayMode 184件(172→184)、いずれもfailed 0・skipped 0・inconclusive 0。PlayModeは3回連続実行しすべて184件Passedを確認。プロジェクトコード由来のConsole Error/Warning 0件(コンソールに残る内容はすべて意図したテストシミュレーションのエラー・例外ログ)。正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)すべて`manage_scene validate`でMissing Script 0・Broken Prefab 0を確認。
+- **Scene変更**: `Village.unity`の`VillageSceneInstaller`へ`_mainQuestGiver`=`Elder`のNpcInteractableをUnity MCP経由で設定・保存(既存の会話テキストはそのまま流用)。
+
+#### T-022 実MasterData Asset作成(完了)
+- **目的**: Composition層の仮固定値を、T-012で定義したMasterData Asset参照へ置き換える。
+- **依存**: T-012。
+- **最低限作成するデータ**: 通常敵3種類、ボス1種類、回復系消費アイテム2種類、武器2種類、防具2種類、メインクエスト定義1件、プレイヤー初期データ1件、既存ExperienceTableと整合する成長データ。
+- **完了条件**: AssetはUnity MCPまたはUnity Editor正規APIで作成する。IDが一意。必須値が設定済み。数値範囲が正常。MasterDataValidatorを通過する。通常敵、ボス、初期プレイヤーの固定値をAsset参照へ置換する。実行時状態をScriptableObjectへ書き戻さない。参照不足時に隠れたフォールバックを行わない。参照不足時は明確なエラーを出して安全に停止する。
+
+**実装内容:**
+- **`EnemyMasterData`/`EnemyDefinition`拡張**: 既存8引数コンストラクタへ`RewardExperience`(int、0以上)を追加し9引数化(T-012の既存型を最小拡張、重複型を作らない方針)。`EnemyDefinition`(ScriptableObject)に`_rewardExperience`フィールドを追加し`ToMasterData()`へ反映。
+- **`InitialPlayerDefinition`(新設、Infrastructure)**: `Assets/_Project/Runtime/Infrastructure/MasterData/InitialPlayerDefinition.cs`。`StatGrowthProfile`(T-004)の14フィールド相当を`[SerializeField]`で保持し、`ToGrowthProfile()`と`ToInitialCharacterStats()`(`CharacterStatsCalculator.Calculate`をMinLevelで呼び出すのみ、計算式は再実装しない)を公開する。「初期プレイヤーデータ」と「成長データ」を1Assetで兼ねる設計とし、別途の`StatGrowthProfileDefinition`は作成していない(推奨Asset名一覧が`InitialPlayerDefinition`1件のみだったため)。
+- **`QuestMasterData`(新設、Domain)/`QuestDefinition`(新設、Infrastructure)**: メインクエストの静的定義(Id・DisplayNameのみ、状態機械は持たない)。既存`QuestState`/`QuestProgress`(T-007)とは責務を分離し、後続T-021のクエスト進行ロジックには依存しない。
+- **`BattleSceneInstaller`**: 旧来の固定`CharacterStats`定数3つ(`FallbackPlayerStats`/`RegularEncounterEnemyStats`/`BossEncounterEnemyStats`)を削除し、`[SerializeField] InitialPlayerDefinition _fallbackPlayerDefinition`、`[SerializeField] EnemyDefinition[] _regularEnemies`(3体)、`[SerializeField] EnemyDefinition _bossEnemy`のInspector参照に置換した。`ValidateMasterDataReferences()`を新設し、参照不足時は対象ごとに`Debug.LogError`を出して`Start()`を安全に中断する(隠れたフォールバックなし)。通常敵は`internal static EnemyDefinition PickRegularEnemy(EnemyDefinition[] candidates, double roll)`(決定的・単体テスト可能)で`IRandomSource`から一様ランダムに選択する。選択結果は`_currentEnemyMasterData`として保持し、T-023の報酬付与で再利用する(T-022時点では未使用)。敵の`Level`はMasterDataに存在しないため固定値`1`をCharacterStats生成時に使用する(戦闘ロジック上Levelは参照されないため実害なし)。
+- **`TitleSceneInstaller`**: 固定`CharacterStats`定数`NewGameStats`を削除し、`[SerializeField] InitialPlayerDefinition _initialPlayerDefinition`に置換。参照不足時は`Debug.LogError`を出し`OnNewGameRequested`を安全に中断する。
+- **参照不足時の安全停止**: 上記2箇所とも、参照未設定時は明確なエラーメッセージ(対象フィールド名を含む)を出力し、セッション生成やBattleSession構築を行わずに処理を中断する。
+- **作成したMasterData Asset(12件、Unity MCP経由で作成)**:
+  - 敵(`Assets/_Project/ScriptableObjects/Enemies/`): `Slime`(HP12/Atk4/Def1/Agi3, 経験値6)、`Wolf`(HP16/Atk6/Def2/Agi6, 経験値9)、`Golem`(HP24/Atk7/Def5/Agi1, 経験値12)、`IslandGuardian`(ボス、HP60/MP10/Atk10/Def6/Agi4/Mag3, 経験値50)
+  - アイテム(`Assets/_Project/ScriptableObjects/Items/`): `SmallPotion`(回復20)、`LargePotion`(回復50)
+  - 装備(`Assets/_Project/ScriptableObjects/Equipment/`): `RustySword`(Weapon, Atk+3)、`SkyBlade`(Weapon, Atk+8)、`TravelerArmor`(Armor, Def+3)、`GuardianArmor`(Armor, Def+8)
+  - クエスト定義(`Assets/_Project/ScriptableObjects/Quests/`): `RestoreTheFloatingIslands`
+  - プレイヤー初期データ(`Assets/_Project/ScriptableObjects/Player/`): `InitialPlayerDefinition`(MinLevel1/MaxLevel10、基礎HP20/MP5/Atk5/Def3/Agi5/Mag2、成長HP+4/MP+1/Atk+2/Def+1/Agi+1/Mag+1)。MaxLevel=10は今後T-023で作成するExperienceTableのMaxLevelと一致させる(整合性はT-023側でテストする)。
+- **Scene変更**: `Battle.unity`の`BattleSceneInstaller`へ`_fallbackPlayerDefinition`=`InitialPlayerDefinition`、`_regularEnemies`=[`Slime`,`Wolf`,`Golem`]、`_bossEnemy`=`IslandGuardian`をUnity MCP経由で設定・保存。`Title.unity`の`TitleSceneInstaller`へ`_initialPlayerDefinition`=`InitialPlayerDefinition`をUnity MCP経由で設定・保存。Scene構造・Prefab自体は変更していない。
+- **テスト**: EditMode新規9件(`EnemyMasterDataTests`+2、`QuestMasterDataTests`新規7)、PlayMode新規10件(`BattleSceneInstallerTests`+6[`PickRegularEnemy`境界値4件、参照不足時中断1件、複数候補時の妥当性1件]、`TitleSceneInstallerTests`+1、`InitialPlayerDefinitionTests`新規3)。
+- **全体テスト結果**: 全EditMode 234件(225→234)、全PlayMode 172件(162→172)、いずれもfailed 0・skipped 0・inconclusive 0。PlayModeは3回連続実行しすべて172件Passedを確認。プロジェクトコード由来のConsole Error/Warning 0件(コンソールに残る内容はすべてテスト自身が`LogAssert.Expect`で捕捉する意図的なシミュレーション例外・エラーメッセージ)。正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)すべて`manage_scene validate`でMissing Script 0・Broken Prefab 0を確認。
+- **Console/手動確認時の注記**: MCPブリッジ自身のWebSocketトランスポートに関する警告(`[WebSocket] Unexpected receive error`)を1件観測したが、MCPForUnityパッケージ内部の通信基盤のログでありプロジェクトコード由来ではないと判断した。
+
+#### T-023 戦闘報酬・経験値・レベルアップ統合(完了)
+- **目的**: T-006のExperienceTableとLevelUpCalculatorを実際の戦闘結果へ接続する。
+- **依存**: T-006, T-022。
+- **完了条件**: Enemy MasterDataから獲得経験値を取得する。通常戦勝利後・Boss勝利後に経験値を加算する。敗北時は経験値を付与しない。レベルアップ条件を満たした場合にレベルを更新し、CharacterStatsを再計算する。最大レベルを超えない。経験値オーバーフローを安全に扱う。獲得経験値・レベルアップ有無・新レベルを最低限表示する。Retryやイベント多重発火で報酬を重複取得できない。Scene復帰後も状態を保持する。Continue後もレベルと経験値を復元する。
+
+**実装内容:**
+- **`InitialPlayerDefinition`拡張**: `_cumulativeExperienceByLevel`(int配列)を追加し`ToExperienceTable()`で`ExperienceTable`(T-006)を生成できるようにした。プレイヤーの成長データ・初期データ・経験値テーブルを1Assetに集約する既存方針(T-022)を維持し、新規Asset種別は追加していない。実Asset(`InitialPlayerDefinition.asset`)へ`[0,10,25,45,70,100,140,190,250,320]`(Lv1〜10)を設定。
+- **`PlayerSessionState.ApplyStatGrowth(CharacterStats newStats)`(新設）**: レベルアップ後の`CharacterStats`を適用する唯一の手段。`newStats.Level`が現在のLevel未満の場合は`ArgumentOutOfRangeException`(退行を拒否)。**レベルアップ時のHP/MP回復方針: 全回復する**(`CurrentHp = newStats.MaxHp`, `CurrentMp = newStats.MaxMp`)。複雑な部分回復・按分方式は採用していない(推測による仕様追加を避けるため、最も単純で明確な「全回復」を採用)。
+- **`BattleRewardResult`/`GrantBattleRewardUseCase`(新設、Application/Progression/）**: `Execute(session, experienceTable, growthProfile, rewardExperience)`が(1)`session.GainExperience`で加算(既存`checked`ブロックによりオーバーフローは`OverflowException`として安全に検出、黙って握り潰さない)、(2)`LevelUpCalculator.CalculateLevel`(T-006)で新レベルを算出(最大レベルで自動的に頭打ち)、(3)レベルが実際に上がった場合のみ`CharacterStatsCalculator.Calculate`(T-004)で再計算し`ApplyStatGrowth`を適用。計算式はすべて既存Domain型を再利用し重複実装していない。
+- **`BattleUIController.ShowReward(int, bool, int)`(新設）**: 獲得経験値・レベルアップ有無・新レベルを戦闘ログへ追記するだけの最小表示(アニメーション・専用UIパネルなし)。
+- **`BattleSceneInstaller`統合**: `OnBattleEnded`の先頭で`PlayerVictory`の場合のみ`GrantRewardOnce()`を呼び出す。`_rewardGranted`(bool)フィールドで同一バトルインスタンス内の多重発火を防止する(Retryは新しいBattleSceneInstallerインスタンスを生成するため、Retryごとに1回だけ報酬が入る)。報酬対象の敵は`_currentEnemyMasterData`(T-022で解決済み)、成長データ・経験値テーブルは`_fallbackPlayerDefinition`(T-022のInspector参照、CurrentSessionの有無によらず唯一の成長曲線として使用)から取得する。`CurrentSession`が存在しない場合は安全に何もしない。
+- **セーブ**: Level/TotalExperienceは既存のSaveVersion 1由来フィールド(T-010/T-011)でそのまま永続化されるため、**新たなSaveVersion変更は不要**(T-023はセーブスキーマに変更を加えていない)。
+- **今回のスコープ外**: 部分回復・按分回復等の複雑なHP/MP回復仕様、演出・アニメーション、レベルアップ時のスキル習得。
+- **テスト**: EditMode新規18件(`GrantBattleRewardUseCaseTests`14、`PlayerSessionStateTests`の`ApplyStatGrowth`関連4)。PlayMode新規11件(`BattleUIControllerTests`+3[`ShowReward`表示]、`BattleSceneInstallerTests`+6[通常戦報酬・Boss報酬・敗北時無報酬・多重発火防止・レベルアップ・CurrentSessionなし]、`InitialPlayerDefinitionTests`+2[経験値テーブル生成・成長データとのMaxLevel整合])。
+- **全体テスト結果**: 全EditMode 284件(266→284)、全PlayMode 195件(184→195)、いずれもfailed 0・skipped 0・inconclusive 0。PlayModeは3回連続実行しすべて195件Passedを確認。プロジェクトコード由来のConsole Error/Warning 0件。Battle.unity/GameClear.unityを含む正式Sceneで`manage_scene validate`によりMissing Script 0・Broken Prefab 0を確認。
+
+#### T-024 アイテム・装備・所持品管理(完了)
+- **目的**: T-012とT-022のアイテム、武器、防具データを使用し、所持品と装備状態を管理できるようにする。
+- **依存**: T-012, T-022, T-023。
+- **完了条件**: ItemId単位で数量を保持できる。アイテムを追加・消費できる。数量不足・数量0未満・存在しないIDを拒否する。武器と防具を装備・解除できる。装備カテゴリ不一致を拒否する。所持していない装備を拒否する。装備補正をCharacterStatsへ反映し、二重加算しない。同一報酬の重複取得を防止する。Sceneをまたいで状態を保持する。New Gameで初期化される。Continueで復元される。Retryでアイテムや装備が不正に増減しない。最低限の取得・使用・装備・確認経路が存在する。
+- **今回実装しないもの**(T-026以降へ残す): 本格的なメニュー画面、ショップ、クラフト、装備耐久度、ランダムオプション、アイテムソート、ドラッグアンドドロップ、複雑な装備比較UI。
+
+**実装内容:**
+- **`Inventory`(新設、Domain/Inventory/）**: `Dictionary<string,int>`をprivate保持し、`Add`/`Consume`/`GetQuantity`を提供。`Quantities`は毎回防御的コピーを返す。数量0未満・ID不正・数量不足・未所持消費をすべて例外で拒否する。重複ItemIdは同一エントリへ自然に統合される(Dictionaryキー特性による)。復元用コンストラクタ`Inventory(IReadOnlyDictionary<string,int>)`も防御的コピーを行う。
+- **`EquipmentLoadout`(新設、Domain/Inventory/）**: `EquippedWeaponId`/`EquippedArmorId`(nullable)を保持。`EquipWeapon`/`EquipArmor`/`UnequipWeapon`/`UnequipArmor`のみを公開し、カテゴリ・所持チェックは持たない(Application層の責務)。
+- **`EquipmentStatCalculator`(新設、Domain/Inventory/）**: `ApplyBonus(baseStats, weapon, armor)`が毎回`baseStats`から新しい`CharacterStats`を計算して返す(状態を保持しない純粋関数のため二重加算が構造的に発生しない)。
+- **`AddItemUseCase`/`ConsumeItemUseCase`/`EquipItemUseCase`/`UnequipItemUseCase`(新設、Application/Inventory/）**: それぞれ`AddItemResult`/`ConsumeItemResult`/`EquipItemResult`(Advanced/Rejected方式と同じ列挙型パターン)を返す。`ConsumeItemUseCase`はItemMasterDataのHealAmount分`PlayerSessionState.SetCurrentHp`をMaxHpにクランプして呼ぶ。`EquipItemUseCase`はMasterDataの`Slot`と要求`EquipmentSlot`が一致し、かつ`Inventory`に1個以上所持している場合のみ装備する。
+- **`PlayerSessionState`拡張**: `Inventory`/`Equipment`プロパティ(コンストラクタでオーナーとして生成、既存8引数コンストラクタは無変更のため既存呼び出し元は無修正でコンパイル可能)。`ClaimedRewardIds`(`HashSet<string>`)と`ClaimReward(string)`/`HasClaimedReward(string)`を追加し、一度きり報酬の重複取得防止に使用する。`BattleSceneInstaller.BuildRematchSnapshot`はInventory/Equipment/ClaimedRewardIdsを(既存のMainQuest/SubQuestと同様に)参照渡しでRetry用スナップショットへ引き継ぐ。
+- **セーブ拡張(SaveVersion 2→3)**: `SaveGameSnapshot`に`InventoryEntries`(`ItemId`/`Quantity`の構造体配列。JsonUtilityがDictionaryを直接シリアライズできないため配列化)、`EquippedWeaponId`/`EquippedArmorId`、`ClaimedRewardIds`(string配列)を追加。`PlayerSessionStateMapper.FromSnapshot`はv3未満のセーブに対しては空のInventory/未装備/未請求として安全に復元する。配列内の重複ItemIdは「最後の値が勝つ」方針で明確化(Dictionary構築時に上書き)。
+- **戦闘統合(BattleSceneInstaller)**: `_equipmentCatalog`(Inspector参照、任意)から装備補正込みの`playerStats`を都度計算してから`BattleSession`を構築する(補正はsession.Statsへ書き戻さない)。`_victoryItemReward`(Inspector参照、任意)を勝利のたびに1個付与する(通常戦・Boss戦問わず、`GrantRewardOnce`の重複防止ガードを共有)。
+- **最低限のゲーム内経路**:
+  - **取得**: `ItemPickupTrigger`(新設、Presentation/Items/、Field.unityに1箇所配置)がプレイヤー接触で発火し、`FieldSceneInstaller`が`PlayerSessionState.ClaimReward`で重複防止した上でRustySwordを1個付与する。Presentation層はMasterData/Infrastructureを一切参照しない設計(`_pickupItem`/`_pickupEquipment`はComposition層の`FieldSceneInstaller`が保持)。
+  - **戦闘報酬**: 勝利のたびにSmallPotionを1個付与(T-023の経験値付与と同じ`GrantRewardOnce`ガードで多重発火を防止)。
+  - **使用・装備・確認**: `InventoryPanelController`(新設、Presentation/Items/、Village.unityに1箇所配置)が所持数・装備中アイテム名を表示し、「Use Potion」「Equip Weapon」「Equip Armor」の3ボタンを提供する。ボタンは純粋にイベントを発火するのみで、実際の消費・装備判定は`VillageSceneInstaller`(Composition)が`ConsumeItemUseCase`/`EquipItemUseCase`を呼んで行う(所持している中で未装備の最初の候補を装備する、という最小限のロジック)。
+- **今回のスコープ外**: 本格的なメニュー画面、ショップ、クラフト、装備耐久度、ランダムオプション、アイテムソート、ドラッグアンドドロップ、複雑な装備比較UI(T-026へ持ち越し)。
+- **テスト**: EditMode新規77件(`InventoryTests`16、`EquipmentLoadoutTests`11、`EquipmentStatCalculatorTests`8、`AddItemUseCaseTests`4、`ConsumeItemUseCaseTests`5、`EquipItemUseCaseTests`7、`UnequipItemUseCaseTests`4、`PlayerSessionStateTests`関連新規、`PlayerSessionStateMapperTests`関連新規、他)。PlayMode新規13件(`ItemPickupTriggerTests`5、`InventoryPanelControllerTests`5、`BattleSceneInstallerTests`+2[装備補正適用/未適用]、`VillageSceneInstallerTests`+6[Use Potion/Equip Weapon/Equip Armor等]の一部重複を除く純増分)。
+- **全体テスト結果**: 全EditMode 361件(284→361)、全PlayMode 214件(195→214)、いずれもfailed 0・skipped 0・inconclusive 0。PlayModeは3回連続実行しすべて214件Passedを確認。プロジェクトコード由来のConsole Error/Warning 0件。正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)すべて`manage_scene validate`でMissing Script 0・Broken Prefab 0を確認。
+- **Scene変更**: `Field.unity`に`FieldItemPickup`(`ItemPickupTrigger`、`SphereCollider`トリガー)を新規配置し`FieldSceneInstaller`へ配線。`Village.unity`に`InventoryPanel`(Canvas + StatusText + 3ボタン)を新規配置し`VillageSceneInstaller`へ配線。`Battle.unity`の`BattleSceneInstaller`へ`_equipmentCatalog`(武器2+防具2)と`_victoryItemReward`(SmallPotion)をUnity MCP経由で設定。いずれもUnity MCP(`manage_gameobject`/`manage_components`)経由で作成・設定し、Scene YAMLを直接編集していない。
+- **手動確認(実機Play Mode、Unity MCP経由)**: New Game→Elder会話でメインクエスト開始(NotStarted→ExploreField)→Field到達で進行(→EnterDungeon)→Fieldでアイテム(RustySword)を1回取得(2回目は重複取得されないことを確認)→通常戦勝利でEXP+アイテム(SmallPotion)獲得(戦闘ログに"EXP +6"表示を確認)→Village Inventoryパネルで所持数表示を確認→Equip Weaponボタンで武器装備→Use Potionボタンでポーション消費を確認→Dungeon到達で進行(→DefeatBoss)→ボス撃退でEXP+50・レベルアップ(Lv.1→4、戦闘ログに"Level Up! Lv.4"表示)→MainQuest Completed→GameClear(GAME CLEAR!パネル表示)を確認→実際の`SaveGameUseCase`/`LoadGameUseCase`でSave→Load往復を実行しLevel/MainQuest/Inventory/Equipment/ClaimedRewardIdsすべて正しく復元されることを確認→Title→Continueで実際にVillageへ復元されLevel4・MainQuest Completed・所持品・装備がすべて維持されることを確認。すべてConsole Error/Warning 0件。
+- **既知の問題(T-021〜T-024範囲外、既存の未実装)**: プレイヤーが任意タイミングでセーブを行うための実際のUI(セーブボタン等)がゲーム内のどのSceneにも存在しない(`SaveGameUseCase`自体はT-010/T-011で実装済みで、本セッションでも直接呼び出しによる動作は確認済み)。この経路の追加はT-021〜T-024のいずれの完了条件にも含まれないため本セッションでは対応していない。
+
+### T-021〜T-024 Codex第三者レビュー指摘対応(Major3件・Minor1件、本セッションで対応完了)
+
+Codex第三者レビュー結果: Critical 0件、Major 3件、Minor 1件、全体判定「不合格」。以下、指摘範囲のみを必要最小限で修正した。T-021〜T-024の既存実装(Domain/Application/Infrastructure/Presentation)は作り直していない。T-025以降には着手していない。
+
+#### Major 1: 戦闘終了処理の多重実行防止(`BattleSceneInstaller.cs`)
+- **指摘**: 報酬付与には`_rewardGranted`ガードがあったが、`OnBattleEnded`全体(LastBattleOutcome更新、MainQuest進行、ReturnToField、GameClear遷移、PendingBattle消費等)にはガードがなく、2回目の呼び出しで誤って再実行される可能性があった。
+- **修正**: `OnBattleEnded`冒頭に`_battleEndHandled`(新設フィールド)のチェックを追加し、`true`なら即`return`、`false`なら直ちに`true`へ変更してから処理を続ける方式とした。非同期処理(`await`)が始まる前、同期的に設定するため、2回目の呼び出しが同一フレーム内で発生しても確実にガードされる。`_rewardGranted`とは責務を分離して維持(報酬専用ガードはそのまま残す)。新しいBattle Scene初期化のたびに新しい`BattleSceneInstaller`インスタンスが生成されるため、`_battleEndHandled`は明示的なリセット処理なしで各戦闘ごとにfalseから始まる。グローバルなstatic状態・public Singletonは追加していない。
+- **テスト**: `BattleSceneInstallerTests`に6件追加(`BattleEnded_InvokedTwice_BossVictory_GameClearTransitionRequestedOnce`、`BattleEnded_InvokedTwice_SecondOutcomeDoesNotOverwriteLastBattleOutcome`、`BattleEnded_InvokedTwice_RegularVictory_ReturnToFieldRequestedOnce`、`BattleEnded_InvokedTwice_MainQuestAdvancedOnce`、`BattleEnded_InvokedTwice_PendingBattleConsumedOnce`、`BattleEnded_NewInstallerInstance_HandlesOwnBattleEndIndependently`)。既存の`BattleEnded_InvokedTwice_DoesNotGrantRewardTwice`は変更・弱体化していない。`FakeSceneLoader`に`UnloadCallCount`と`LoadCalls`(呼び出し順序記録用リスト)を追加し、遷移が意図した回数・順序で発生したことを検証できるようにした。
+
+#### Major 2: Retry時のPendingBattleContext復元(`GameServices.cs`, `BattleSceneInstaller.cs`, `GameClearSceneInstaller.cs`)
+- **指摘**: RetryはPlayerSessionStateを`RematchSnapshot`から復元するが、`PendingBattleContext`(通常戦かBoss戦か、復帰先SceneId)を復元しておらず、敗北後にRetryすると通常戦勝利がGameClear扱いになる等、元の戦闘種別と復帰先が失われる問題があった。
+- **修正**: `GameServices`に`RematchPendingBattle`プロパティ(新設)を追加。`BattleSceneInstaller.Start()`が`RematchSnapshot`を構築する箇所と同じタイミングで、`_services.PendingBattle`の防御的コピー(新しい`PendingBattleContext`インスタンス)を`RematchPendingBattle`へ保存する。`GameClearSceneInstaller.OnRetryRequested()`は`RematchPendingBattle`が存在する場合、まず`pendingBattle.ReturnSceneId`(Field/Dungeon)をSingleモードで読み込み直し、次に`_services.PendingBattle`へ防御的コピーを設定してからBattleをAdditiveモードで読み込む、という元のエンカウント開始フロー(`FieldSceneInstaller`/`DungeonSceneInstaller`の`StartEncounterAsync`と同じ手順)を再現する。`RematchPendingBattle`が存在しない場合(Battleへ直接入った等)は、従来通りBattleへSingleモードで直接遷移するフォールバックを維持する。PendingBattleは永続Saveデータ(`SaveGameSnapshot`)へは一切追加しておらず、`RematchSnapshot`と対になる一時的なComposition内状態としてのみ扱う。既存のRetry・RematchSnapshot・BattleSceneInstaller・GameClearSceneInstallerの設計をそのまま再利用し、別の重複Retryシステムは作っていない。static可変状態は追加していない。
+- **テスト**: `GameClearSceneInstallerTests`に6件追加(通常Field戦Retry、通常Dungeon戦Retry、Boss戦Retry、PendingBattleなしのフォールバック、防御的コピーの参照非同一性、Boss戦Retry失敗時のボタン復旧)。
+
+#### Major 3: SaveVersion 3ロード時の整合性検証(`PlayerSessionStateMapper.cs`, `LoadGameUseCase.cs`, `JsonSaveRepository.cs`, `TitleSceneInstaller.cs`)
+- **指摘**: SaveVersion 3のロード時、EquippedWeaponId/EquippedArmorIdの実在性・カテゴリ一致、LevelとTotalExperienceの整合性が検証されておらず、不正なSnapshot(存在しない装備ID、カテゴリ不一致、Level/TotalExperience不整合等)がそのまま復元される可能性があった。
+- **修正方針**: 「不正Saveはロード失敗として扱う」方式を採用した(安全な初期状態へのフォールバックではなく、既存の`LoadGameUseCase`/`JsonSaveRepository`が持つ「失敗→バックアップへフォールバック、両方失敗ならロード失敗」という既存の失敗処理経路にそのまま合流させる設計)。
+  - `PlayerSessionStateMapper.FromSnapshot`に`ExperienceTable experienceTable = null`と`IReadOnlyDictionary<string, EquipmentMasterData> equipmentCatalog = null`という2つの省略可能引数を追加(T-024の`PlayerSessionState`拡張と同じ「オプション引数で破壊的変更を避ける」方針)。両方Domain層の既存型(`ExperienceTable`はT-006、`EquipmentMasterData`はT-012)を再利用しており、Application層にInfrastructure/UnityEngine依存は一切持ち込んでいない。`SaveVersion >= 3`の場合のみ検証を実行し、v1/v2には適用しない。
+  - Level/TotalExperience整合性: `experienceTable`が渡された場合のみ、`LevelUpCalculator.CalculateLevel`(T-006で作成済み)で算出した期待Levelと`snapshot.Level`を比較し、不一致なら`ArgumentException`。負のTotalExperienceも同様に拒否。最大レベル時の余剰経験値は`CalculateLevel`が元々許容する仕様のため、正しい境界値を誤って拒否しない。
+  - 装備ID整合性: `equipmentCatalog`が渡された場合のみ、EquippedWeaponId/EquippedArmorIdが空文字列・nullなら常に「未装備」として許可し、そうでなければカタログに実在するか・スロットが一致するかを検証し、不一致なら`ArgumentException`。Inventory内所持数と装備の整合性は、既存仕様に存在しないため新規制約として追加していない。
+  - `LoadGameUseCase`に`ExperienceTable`/`EquipmentCatalog`という2つの省略可能プロパティ(デフォルトnull)を追加し、`Load()`内で`FromSnapshot`へ渡す。コンストラクタは変更していないため、既存の全呼び出し元(`GameServices`、各種テスト)は無修正でコンパイル・動作する。
+  - `JsonSaveRepository`にも同名の2プロパティを追加し、`IsRestorable`(プライマリ/バックアップ双方の妥当性判定に使用される既存メソッド)を通じて同じ検証を適用した。これにより「プライマリが新v3検証に違反 → 自動的に正常なバックアップへフォールバック」という要求どおりの挙動を、既存のバックアップ機構を変更せずに実現している。
+  - `TitleSceneInstaller`(実際にContinueで`LoadGameUseCase.Load()`が呼ばれる唯一の経路)に`_equipmentCatalog`(`EquipmentDefinition[]`、Inspector参照、任意)フィールドを新設し、`Start()`で`_initialPlayerDefinition.ToExperienceTable()`と装備カタログ辞書を構築して、既存の`_services.LoadGameUseCase`/`_services.SaveRepository`(実体が`JsonSaveRepository`の場合のみ)へ**再構築せずプロパティ設定のみで**注入する。これにより、テストが独自に差し替えたリポジトリ/LoadGameUseCaseインスタンスを上書きすることなく、実ゲームプレイ時のみ実MasterDataによる検証が有効になる。Title.unityの`TitleSceneInstaller`へ`_equipmentCatalog`(RustySword/SkyBlade/TravelerArmor/GuardianArmor、既存4Asset)をUnity MCP経由で配線した。
+- **テスト**: `PlayerSessionStateMapperTests`に17件追加(正常なLevel/TotalExperience、Level1境界、最大レベル境界の余剰経験値、Level/TotalExperience不整合の拒否、負のTotalExperienceの拒否、ExperienceTable未指定時のスキップ、既知Weapon/Armor IDの復元、未知Weapon/Armor IDの拒否、スロットカテゴリ不一致[両方向]の拒否、null/空装備IDが常に許可されること、EquipmentCatalog未指定時のスキップ、v1/v2への新検証の不適用[2件]、両カタログ指定時のInventory/Equipment/ClaimedRewardIds復元の非退行確認)。`JsonSaveRepositoryTests`に4件追加(ExperienceTable設定時のLevel不整合バックアップフォールバック、ExperienceTable未設定時の非フォールバック確認、EquipmentCatalog設定時の未知ID バックアップフォールバック、EquipmentCatalog未設定時の非フォールバック確認)。`TitleSceneInstallerTests`に5件追加(正常Snapshot、Level/TotalExperience不整合、未知装備ID、スロットカテゴリ不一致、正常装備ID)。既存の`TitleSceneInstallerTests`の共有`BuildScene`フィクスチャに`_cumulativeExperienceByLevel`を追加(`Start()`が新たに`ToExperienceTable()`を呼ぶようになったため、未設定のままだと`ArgumentNullException`になる既存フィクスチャの不足を補った)。
+
+#### Minor: 不正なEquipmentSlotの拒否(`UnequipItemUseCase.cs`)
+- **指摘**: `if (slot == EquipmentSlot.Weapon) ... else ...`という二択の条件分岐のため、`(EquipmentSlot)999`のような未定義値がすべてArmor解除として処理されていた。
+- **修正**: `Enum.IsDefined(typeof(EquipmentSlot), slot)`による検証を追加し、未定義値は`ArgumentOutOfRangeException`で明確に拒否するようにした(`default`でArmorへ流さない)。既存の正常系(Weapon/Armor)の挙動は変更していない。`EquipItemUseCase`の同様の二択分岐も確認したが、その手前で`equipmentData.Slot != targetSlot`の一致チェックが必ず先に走るため、未定義値は既にこのチェックで`SlotMismatch`として安全に拒否されており、追加修正は不要と判断した(指摘範囲を超える変更は行っていない)。
+- **テスト**: `UnequipItemUseCaseTests`に2件追加(`(EquipmentSlot)999`が`ArgumentOutOfRangeException`を投げること、その際にLoadout状態が変化しないこと)。既存の`Execute_WeaponSlot_UnequipsWeaponOnly`/`Execute_ArmorSlot_UnequipsArmorOnly`は必須テスト項目の「Weapon解除」「Armor解除」を既に満たしている。
+
+#### テスト結果(本セッションで実測)
+- 追加テスト件数: EditMode新規19件(Minor 2件、Major3 17件)、PlayMode新規21件(Major1 6件、Major2 6件、Major3 TitleSceneInstaller 5件・JsonSaveRepository 4件)。
+- 全EditMode: 380件Passed(361→380)、failed 0・skipped 0・inconclusive 0。
+- 全PlayMode: 235件Passed(214→235)、failed 0・skipped 0・inconclusive 0。3回連続実行しすべて235件Passedを確認。
+- Console: プロジェクトコード由来のError/Warning 0件(自動テスト実行時に記録されたログはすべて既存の`LogAssert.Expect`対象[意図的なシミュレーション失敗ログ]のみ)。
+- 正式6Scene(Title/Village/Field/Dungeon/Battle/GameClear)すべて`manage_scene validate`でMissing Script 0・Missing Reference 0・Broken Prefab 0を確認。
+- **手動確認(実機Play Mode、Unity MCP `execute_code`経由)**: New Game→Elder会話でメインクエスト開始→Field到達→通常戦闘をField上でAdditive開始→敗北→GameClear(Game Over)遷移→`RematchPendingBattle`にReturnSceneId=Field・IsBossEncounter=falseが保存されていることを確認→Retry実行→Field(Single)→Battle(Additive)の順で遷移することを確認→勝利イベントを2回発火→Scene遷移は1回のみ(Fieldへ復帰、GameClearへは進まない)・報酬(経験値)は1回のみ加算されることを確認。続けてBoss戦(MainQuest DefeatBoss状態、Dungeon想定)で同様に敗北→Retry→`RematchPendingBattle`にReturnSceneId=Dungeon・IsBossEncounter=trueが保存されており、Retry後実際にDungeonが(Fieldでなく)読み込まれることを確認→勝利イベントを2回発火→GameClearへ1回だけ遷移・MainQuestがCompletedになること・報酬(経験値)が1回のみ加算されることを確認。Save/Load整合性については、実際の`SaveGameUseCase`/`LoadGameUseCase`(Title.unityで実配線された実ExperienceTable/実装備カタログ使用)で、正常なセーブの往復successを確認した上で、プライマリ保存ファイルを直接Level/TotalExperience不整合な内容へ書き換え→`LoadGameUseCase.Load()`が正常なバックアップへ自動フォールバックすること、未知の装備IDへ書き換えた場合も同様にバックアップへフォールバックすることを確認。手動確認セッション中、Unity組み込みの「2 event systems」等の警告が記録されたが、これは`execute_code`による手動シミュレーションが`FieldActivityGate.Pause()`(通常の`FieldSceneInstaller`/`DungeonSceneInstaller`が実際のエンカウント開始時に必ず呼ぶ手順)を経由せず直接Scene遷移APIを呼び出したことによるテスト手法上のアーティファクトであり、プロジェクトコード由来のエラー・警告ではないことを、同一シナリオを正規のフローで実行する自動化PlayMode テスト(3回連続235件Passed、Console Error/Warning 0件)で別途確認済み。
+- **未解決事項**: なし(T-021〜T-024範囲内のCodex指摘はすべて対応完了)。T-024完了時点で記載した「ゲーム内にSave実行用UIが存在しない」という既知の問題は本セッションのスコープ外のまま変わらず未対応。
+- 本対応はCodex第三者再レビュー前の状態である。
+
 ### Build Settings(Codex第三者レビューMajor 4指摘、最終再レビュー指摘、およびT-019/T-020のScene追加対応)
 - `ProjectSettings/EditorBuildSettings.asset`を、Unity MCP(`manage_build` action=scenes)経由で以下の順序へ更新した(直接テキスト編集はしていない)。
   - Build Index 0: `Title`
@@ -465,7 +595,7 @@ Presentation と Infrastructure は相互に参照しない。
 - **T-010: 完了・`main`にマージ済み(PR #5)**。セーブ/ロードユースケースと`PlayerSessionState`をApplication層に作成。EditModeテスト34件すべてPassed。
 - **T-011: 完了・`main`にマージ済み(PR #5、Codex第三者レビューMajor指摘対応完了)**。セーブデータ保存基盤(`FileSystemSaveStorage`, `JsonSaveRepository`)をInfrastructure層に作成。PlayModeテスト24件すべてPassed。
 - **T-012: 完了・`main`にマージ済み(PR #5)**。敵/アイテム/装備マスターデータ定義をDomain/Infrastructure層に作成。EditModeテスト35件すべてPassed。
-- **T-013: 完了(`feature/presentation-gameplay-slice`ブランチ、`main`へ未マージ・未コミット)**。プレイヤー移動・追従カメラ(`PlayerMovement`, `FollowCamera`)をPresentation層に作成。PlayModeテスト6件すべてPassed。
+- **T-013: 完了・`main`にマージ済み(`feature/presentation-gameplay-slice`ブランチ、PR #6)**。プレイヤー移動・追従カメラ(`PlayerMovement`, `FollowCamera`)をPresentation層に作成。PlayModeテスト6件すべてPassed。
 - **T-014: 完了(同ブランチ)**。NPC会話UI(`DialogueSession`, `DialogueBoxView`, `NpcInteractable`)をPresentation層に作成。T-007 `QuestProgress`と連携。PlayModeテスト22件すべてPassed。`DialogueBox.prefab`作成。
 - **T-015: 完了(同ブランチ)**。戦闘UI(`BattleUIController`)をPresentation層に作成。T-008 `BattleSession`をそのまま利用しダメージ/命中判定/行動順を再実装していない。PlayModeテスト8件すべてPassed。`BattleUI.prefab`作成。
 - **T-016: 完了(同ブランチ)**。タイトル画面(`TitleScreenController`)をPresentation層に作成。T-010 `LoadGameUseCase`を注入して使用しセーブデータ有無に応じConinue可否を切り替える。正式`Title.unity` Sceneを新規作成。PlayModeテスト9件すべてPassed。
@@ -554,9 +684,9 @@ Presentation と Infrastructure は相互に参照しない。
 ### 次に行うこと
 - T-008〜T-012(`feature/gameplay-application-foundation`ブランチ)はPull Request #5を経て`main`へマージ済み(マージコミット`35ac111`)。
 - T-013〜T-017(`feature/presentation-gameplay-slice`ブランチ)はPull Request #6を経て`main`へマージ済み。
-- T-018〜T-020(`feature/t018-t020`ブランチ)は完了。実装・テスト・手動確認・PROJECT.md更新が完了済み。Codex第三者レビュー指摘(1回目: Major1件・Minor4件、最終再レビュー: 残存Major1件)への対応もすべて完了済み。`main`へは未マージ・未コミット(commit/pushは本セッションでは行っていない)。
+- T-018〜T-020(`feature/t018-t020`ブランチ)は完了。実装・テスト・手動確認・PROJECT.md更新が完了済み。Codex第三者レビュー指摘(1回目: Major1件・Minor4件、最終再レビュー: 残存Major1件)への対応もすべて完了済み。Pull Request #7を経て`main`へマージ済み(マージコミット`e49e91d`)。
 - Codex再レビューが可能な状態。
-- 次のタスクは**T-021(メインクエストの実装)**(T-007, T-009, T-020に依存、着手可能)。本セッションでは着手していない。
+- T-021〜T-024(本セッションで正式承認・追加。8.実装タスク一覧、4.設計「T-021〜T-024 正式仕様」参照)は**T-022・T-021・T-023・T-024すべて完了**。その後Codex第三者レビュー(Critical 0・Major 3・Minor 1、判定「不合格」)を受け、指摘範囲を必要最小限で修正済み(4.設計「T-021〜T-024 Codex第三者レビュー指摘対応」参照)。全EditMode 380件・全PlayMode 235件Passed、PlayMode3回連続確認済み、Scene検証0件[Missing Script/Broken Prefab]。依存関係の都合により実装順は**T-022 → T-021 → T-023 → T-024**(Task番号順ではない)。`feature/t021-t024-progression-systems`ブランチで作業済み。本ブランチはコミット・push・PR作成・`main`マージ未実施(作業ツリーの変更のみ)。T-025以降には着手していない。Codex第三者再レビュー前。
 - 将来的にCIへ EditMode Test / PlayMode Test / Unity Build の自動実行を追加する(Unityライセンスの用意が前提)。
 - `Assets/Scenes/SampleScene.unity` はAsset自体を保持する(削除しない)が、Build Settingsからは除外済み(正式なBuild開始SceneはTitle、4.設計「Build Settings」参照)。`Bootstrap`は現在のMVP正式Scene一覧には含めない(必要になった場合はPROJECT.md更新・承認後に別Taskで追加する)。
 - `Assets/TutorialInfo` は、Unityテンプレートへの依存有無を確認し、不要と証明できた段階で削除する(現段階では削除しない)。
@@ -579,7 +709,9 @@ Presentation と Infrastructure は相互に参照しない。
 
 ## 8. 実装タスク一覧
 
-> 本タスク一覧はPhase 1以降の実装計画。T-001〜T-012は`main`にマージ済み(T-008〜T-012は`feature/gameplay-application-foundation`ブランチ、PR #5)。T-013〜T-017は`feature/presentation-gameplay-slice`ブランチ(PR #6)を経て`main`にマージ済み。T-018〜T-020は`feature/t018-t020`ブランチで完了済み(`main`へは未マージ・未コミット)。次はT-021以降に進める状態。
+> 本タスク一覧はPhase 1以降の実装計画。T-001〜T-012は`main`にマージ済み(T-008〜T-012は`feature/gameplay-application-foundation`ブランチ、PR #5)。T-013〜T-017は`feature/presentation-gameplay-slice`ブランチ(PR #6)を経て`main`にマージ済み。T-018〜T-020は`feature/t018-t020`ブランチ(PR #7)を経て`main`にマージ済み。
+> **T-021〜T-024(本セッションで正式承認・追加)**: メインクエスト進行・完了ロジック(T-021)、実MasterData Asset作成(T-022)、戦闘報酬・経験値・レベルアップ統合(T-023)、アイテム・装備・所持品管理(T-024)を正式Taskとして追加した。依存関係の都合により実装順は **T-022 → T-021 → T-023 → T-024** とする(Task番号順ではない)。詳細仕様は4.設計「T-021〜T-024 正式仕様」参照。`feature/t021-t024-progression-systems`ブランチで作業する。**T-022・T-021・T-023・T-024すべて完了**。
+> **旧T-022〜T-025の繰り下げ**: 上記の正式追加に伴い、旧計画で番号が衝突していたタスクを繰り下げた(内容は変更していない)。旧T-022(サブクエスト2本の実装)→**T-025**、旧T-023(アイテム・装備UIの実装)→**T-026**、旧T-024(通し結線・E2E確認)→**T-027**、旧T-025(README/LICENSE整備)→**T-028**。T-025以降は本セッションでは着手しない。
 > Scene/Prefabの変更を伴うタスク(T-001, T-009, T-013〜T-020等)は、5.規約「Unity MCP運用方針」に従いUnity MCP接続を前提として実施する。
 
 | Task ID | 目的 | 変更対象 | 完了条件 | 確認方法 | 依存タスク |
@@ -604,8 +736,11 @@ Presentation と Infrastructure は相互に参照しない。
 | T-018 | 村エリアの実装(完了) | Village Scene、NPC3体以上、フィールドへの接続 | 村シーンが単独でロード可能で、NPC会話とフィールドへの移動ができる | 手動プレイでシーン内を一巡して確認 | T-013, T-014 |
 | T-019 | フィールドエリアの実装(完了) | Field Scene、通常敵エンカウント、ダンジョン入口 | フィールドを探索でき、エンカウントが発生し、ダンジョンへ入れる | 手動プレイでエンカウント発生とダンジョン入口到達を確認 | T-015, T-018 |
 | T-020 | ダンジョンの実装(完了) | Dungeon Scene、通常敵エンカウント、ボス部屋 | ダンジョンを進めて道中戦闘を経てボスに到達できる | 手動プレイで入口からボス部屋まで到達を確認 | T-019 |
-| T-021 | メインクエストの実装 | メインクエスト1本のトリガー・進行・完了 | 村での受注からボス撃破での完了までが一連で成立する | 手動プレイで開始から完了までを確認 | T-007, T-009, T-020 |
-| T-022 | サブクエスト2本の実装 | サブクエスト2本のトリガー・進行・完了 | メインクエストと独立に受注・完了できる | 手動プレイでメインクエストと絡めず完了できることを確認 | T-007, T-018 |
-| T-023 | アイテム・装備システムの実装 | インベントリUI、装備切り替えUI | アイテム使用・装備変更がステータス/戦闘に反映される | 手動プレイで装備変更前後のステータス変化と、アイテム使用効果を確認 | T-012, T-015 |
-| T-024 | 通し結線・E2E確認 | 上記全タスクの統合 | タイトル→村→フィールド→ダンジョン→ボス撃破→クリア画面が、Consoleにエラーを出さず30〜60分で完走できる | 手動プレイでの通しプレイ、およびConsole監視 | T-016〜T-023 |
-| T-025 | READMEおよびLICENSEの整備 | `README.md`, `LICENSE` | プロジェクト概要・セットアップ手順が記載されたREADMEと、ライセンス方針に沿ったLICENSEが存在する | ファイルの存在とNotion内容のレビュー | なし |
+| T-021 | メインクエスト進行・完了ロジック(完了) | `Domain/Quests/`拡張(`MainQuestStage`/`MainQuestProgress`)、`Application/Quests/`新設UseCase、Village NPC/Field/Dungeon/Boss/GameClear接続 | Village開始→Field到達→Dungeon到達→Boss撃破の順でのみ進行し、スキップ・逆行・重複進行・条件未達完了を拒否する。Boss撃破済みかつMainQuest Completedの両方を満たした場合のみGameClearへ遷移する | EditModeテスト新規32件・PlayModeテスト新規12件がPassed(全EditMode266件/全PlayMode184件Passed、PlayMode3回連続確認済み)、正式6Scene`manage_scene validate`でMissing Script/Broken Prefab 0件 | T-007, T-014, T-018, T-019, T-020 |
+| T-022 | 実MasterData Asset作成(完了) | `Assets/_Project/ScriptableObjects/`配下の実Asset群、Composition層(`BattleSceneInstaller`, `TitleSceneInstaller`等)の固定値置換 | 通常敵3種・ボス1種・回復アイテム2種・武器2種・防具2種・メインクエスト定義1件・プレイヤー初期データ1件のAssetがID一意・必須値設定済み・数値範囲正常でMasterDataValidatorを通過する。通常敵/ボス/初期プレイヤーの固定値をAsset参照へ置換し、参照不足時は隠れたフォールバックをせず明確なエラーで安全に停止する | EditModeテスト新規9件・PlayModeテスト新規10件がPassed(全EditMode234件/全PlayMode172件Passed、PlayMode3回連続確認済み)、正式6Scene`manage_scene validate`でMissing Script/Broken Prefab 0件 | T-012 |
+| T-023 | 戦闘報酬・経験値・レベルアップ統合(完了) | `Application/Progression/`新設(`GrantBattleRewardUseCase`等)でのEnemy MasterData RewardExperience取得・`PlayerSessionState`経験値加算・レベル/CharacterStats再計算 | 通常戦・Boss戦勝利で経験値を1回だけ加算し、閾値到達でレベルとCharacterStatsを更新する。敗北時は経験値を付与しない。最大レベルを超えず、オーバーフローを安全に扱う。Retryやイベント多重発火で重複取得しない | EditModeテスト新規18件・PlayModeテスト新規11件がPassed(全EditMode284件/全PlayMode195件Passed、PlayMode3回連続確認済み) | T-006, T-022 |
+| T-024 | アイテム・装備・所持品管理(完了) | `Domain`/`Application`新設(`Inventory`, `EquipmentLoadout`, `EquipmentStatCalculator`等)、Field/Dungeon/戦闘報酬からの取得経路、`PlayerSessionState`/セーブ拡張(SaveVersion 2→3) | ItemId単位の数量管理(追加・消費・数量不足拒否・負数拒否・不正ID拒否)、Weapon/Armorの装備・解除(カテゴリ不一致・未所持拒否)、装備補正のCharacterStatsへの反映(二重加算なし)。Sceneをまたいで状態を保持し、New Game/Continue/Retryで不正に増減しない | EditMode/PlayModeテストでAdd/Consume/Equip/Unequip/拒否ケース/二重加算防止/Save・Load往復/Retryを検証。EditModeテスト新規77件・PlayModeテスト新規19件がPassed(全EditMode361件/全PlayMode214件Passed、PlayMode3回連続確認済み) | T-012, T-022, T-023 |
+| T-025 | サブクエスト2本の実装 | サブクエスト2本のトリガー・進行・完了 | メインクエストと独立に受注・完了できる | 手動プレイでメインクエストと絡めず完了できることを確認 | T-007, T-018 |
+| T-026 | アイテム・装備UIの本格実装 | インベントリUI、装備切り替えUI、ショップ、クラフト等の本格メニュー | アイテム使用・装備変更がUI上で快適に操作できる | 手動プレイでUI操作性を確認 | T-015, T-024 |
+| T-027 | 通し結線・E2E確認 | 上記全タスクの統合 | タイトル→村→フィールド→ダンジョン→ボス撃破→クリア画面が、Consoleにエラーを出さず30〜60分で完走できる | 手動プレイでの通しプレイ、およびConsole監視 | T-016〜T-026 |
+| T-028 | READMEおよびLICENSEの整備 | `README.md`, `LICENSE` | プロジェクト概要・セットアップ手順が記載されたREADMEと、ライセンス方針に沿ったLICENSEが存在する | ファイルの存在とNotion内容のレビュー | なし |

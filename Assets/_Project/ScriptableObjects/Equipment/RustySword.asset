@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7aa173de806c1ed4b9b51d4c3ab52351, type: 3}
+  m_Name: RustySword
+  m_EditorClassIdentifier: FloatingIslandsRpg.Infrastructure::FloatingIslandsRpg.Infrastructure.MasterData.EquipmentDefinition
+  _id: equip_rusty_sword
+  _displayName: Rusty Sword
+  _slot: 0
+  _attackBonus: 3
+  _defenseBonus: 0

@@ -139,6 +139,33 @@ namespace FloatingIslandsRpg.Presentation.Battle
             _logText.text = builder.ToString();
         }
 
+        // Minimal reward display (PROJECT.md T-023: "獲得経験値、レベルアップ有無、新レベルを最低限
+        //表示する" -- no dedicated UI, animation, or effects). Composition calls this after
+        // granting the reward; this controller performs no reward calculation itself.
+        public void ShowReward(int experienceGained, bool leveledUp, int newLevel)
+        {
+            if (_logText == null)
+            {
+                return;
+            }
+
+            var builder = new StringBuilder(_logText.text);
+            if (builder.Length > 0)
+            {
+                builder.AppendLine();
+            }
+
+            builder.Append($"EXP +{experienceGained}");
+
+            if (leveledUp)
+            {
+                builder.AppendLine();
+                builder.Append($"Level Up! Lv.{newLevel}");
+            }
+
+            _logText.text = builder.ToString();
+        }
+
         private void ShowResult(BattleOutcome outcome)
         {
             if (_resultPanel != null)

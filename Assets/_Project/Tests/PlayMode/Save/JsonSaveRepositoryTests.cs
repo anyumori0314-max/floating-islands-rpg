@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using FloatingIslandsRpg.Application.Save;
 using FloatingIslandsRpg.Application.Scenes;
 using FloatingIslandsRpg.Application.Session;
 using FloatingIslandsRpg.Domain.Characters.Stats;
+using FloatingIslandsRpg.Domain.MasterData;
+using FloatingIslandsRpg.Domain.Progression;
 using FloatingIslandsRpg.Domain.Quests;
 using FloatingIslandsRpg.Infrastructure.Save;
 using NUnit.Framework;
@@ -317,6 +320,106 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Save
             Assert.AreEqual(999, loaded.TotalExperience);
         }
 
+        // --- Codex review Major 3: SaveVersion 3 integrity checks feed backup fallback too ---
+
+        private static ExperienceTable CreateExperienceTable()
+        {
+            // Level 5 (CreateSnapshot()'s default) requires 70 XP or more in this table, which
+            // CreateSnapshot()'s TotalExperience = 400 satisfies.
+            return new ExperienceTable(new[] { 0, 10, 25, 45, 70 });
+        }
+
+        private static IReadOnlyDictionary<string, EquipmentMasterData> CreateEquipmentCatalog()
+        {
+            return new Dictionary<string, EquipmentMasterData>(StringComparer.Ordinal)
+            {
+                ["equip_test_sword"] = new EquipmentMasterData("equip_test_sword", "Test Sword", EquipmentSlot.Weapon, 5, 0)
+            };
+        }
+
+        [Test]
+        public void TryLoad_PrimaryLevelInconsistentWithExperience_FallsBackToBackupWhenExperienceTableSet()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage) { ExperienceTable = CreateExperienceTable() };
+            var validBackupCandidate = CreateSnapshot();
+            validBackupCandidate.TotalExperience = 555;
+            storage.Write(UnityEngine.JsonUtility.ToJson(validBackupCandidate));
+
+            var invalidPrimary = CreateSnapshot();
+            invalidPrimary.Level = 1;
+            invalidPrimary.TotalExperience = 400; // Level 1 requires exactly 0 XP in the fixture table
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidPrimary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(555, snapshot.TotalExperience);
+        }
+
+        [Test]
+        public void TryLoad_PrimaryLevelInconsistentWithExperience_AcceptedWhenNoExperienceTableSet()
+        {
+            // Arrange: same inconsistent primary as above, but ExperienceTable is left unset --
+            // must be accepted exactly as before this validation existed.
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var primary = CreateSnapshot();
+            primary.Level = 1;
+            primary.TotalExperience = 400;
+            storage.Write(UnityEngine.JsonUtility.ToJson(primary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(1, snapshot.Level);
+        }
+
+        [Test]
+        public void TryLoad_PrimaryHasUnknownEquippedWeaponId_FallsBackToBackupWhenEquipmentCatalogSet()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage) { EquipmentCatalog = CreateEquipmentCatalog() };
+            var validBackupCandidate = CreateSnapshot();
+            validBackupCandidate.TotalExperience = 555;
+            storage.Write(UnityEngine.JsonUtility.ToJson(validBackupCandidate));
+
+            var invalidPrimary = CreateSnapshot();
+            invalidPrimary.EquippedWeaponId = "equip_missing_sword";
+            storage.Write(UnityEngine.JsonUtility.ToJson(invalidPrimary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(555, snapshot.TotalExperience);
+        }
+
+        [Test]
+        public void TryLoad_PrimaryHasUnknownEquippedWeaponId_AcceptedWhenNoEquipmentCatalogSet()
+        {
+            // Arrange
+            var storage = new FileSystemSaveStorage(_tempDirectory);
+            var repository = new JsonSaveRepository(storage);
+            var primary = CreateSnapshot();
+            primary.EquippedWeaponId = "equip_missing_sword";
+            storage.Write(UnityEngine.JsonUtility.ToJson(primary));
+
+            // Act
+            var found = repository.TryLoad(out var snapshot);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual("equip_missing_sword", snapshot.EquippedWeaponId);
+        }
+
         [Test]
         public void FullRoundTrip_WithSaveLoadUseCases_PreservesPlayerSessionState()
         {
@@ -328,7 +431,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Save
             var stats = new CharacterStats(level: 7, maxHp: 80, maxMp: 30, attack: 25, defense: 15, agility: 18, magic: 10);
             var original = new PlayerSessionState(
                 SceneId.Field, stats, totalExperience: 1200, currentHp: 60, currentMp: 25,
-                new QuestProgress(), new QuestProgress(), new QuestProgress());
+                new MainQuestProgress(), new QuestProgress(), new QuestProgress());
             original.MainQuest.Start();
             original.SubQuest1.Start();
             original.SubQuest1.Complete();
@@ -346,7 +449,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Save
             Assert.AreEqual(original.TotalExperience, loadResult.State.TotalExperience);
             Assert.AreEqual(original.CurrentHp, loadResult.State.CurrentHp);
             Assert.AreEqual(original.CurrentMp, loadResult.State.CurrentMp);
-            Assert.AreEqual(original.MainQuest.CurrentState, loadResult.State.MainQuest.CurrentState);
+            Assert.AreEqual(original.MainQuest.CurrentStage, loadResult.State.MainQuest.CurrentStage);
             Assert.AreEqual(original.SubQuest1.CurrentState, loadResult.State.SubQuest1.CurrentState);
             Assert.AreEqual(original.SubQuest2.CurrentState, loadResult.State.SubQuest2.CurrentState);
         }

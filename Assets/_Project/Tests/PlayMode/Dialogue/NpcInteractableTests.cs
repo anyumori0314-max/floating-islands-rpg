@@ -210,5 +210,33 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Dialogue
 
             Assert.DoesNotThrow(() => _dialogueView.Advance());
         }
+
+        [Test]
+        public void RequestStart_Succeeds_RaisesDialogueStarted()
+        {
+            var npc = CreateNpc("Npc", new[] { "Hi" }, out var npcObject);
+            var raised = false;
+            npc.DialogueStarted += () => raised = true;
+
+            npc.RequestStart();
+
+            Assert.IsTrue(raised);
+
+            Object.DestroyImmediate(npcObject);
+        }
+
+        [Test]
+        public void RequestStart_Fails_DoesNotRaiseDialogueStarted()
+        {
+            var npc = CreateNpc("Npc", new string[0], out var npcObject);
+            var raised = false;
+            npc.DialogueStarted += () => raised = true;
+
+            npc.RequestStart();
+
+            Assert.IsFalse(raised);
+
+            Object.DestroyImmediate(npcObject);
+        }
     }
 }

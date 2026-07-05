@@ -6,6 +6,8 @@ using FloatingIslandsRpg.Application.Session;
 using FloatingIslandsRpg.Composition;
 using FloatingIslandsRpg.Composition.Scenes;
 using FloatingIslandsRpg.Domain.Characters.Stats;
+using FloatingIslandsRpg.Domain.MasterData;
+using FloatingIslandsRpg.Infrastructure.MasterData;
 using FloatingIslandsRpg.Presentation.Battle;
 using FloatingIslandsRpg.Presentation.Encounters;
 using FloatingIslandsRpg.Presentation.Player;
@@ -25,11 +27,15 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
         private Button _attackButton;
         private GameObject _resultPanel;
         private Text _enemyHpText;
+        private Text _logText;
         private FakeSceneLoader _fakeSceneLoader;
         private GameServices _services;
         private BattleUIController _controller;
         private GameObject _defaultBattleCameraObject;
         private GameObject _defaultBattleEventSystemObject;
+        private InitialPlayerDefinition _fallbackPlayerDefinition;
+        private EnemyDefinition[] _regularEnemies;
+        private EnemyDefinition _bossEnemy;
 
         [TearDown]
         public void TearDown()
@@ -63,6 +69,40 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             {
                 Object.DestroyImmediate(_defaultBattleEventSystemObject);
             }
+
+            if (_fallbackPlayerDefinition != null)
+            {
+                Object.DestroyImmediate(_fallbackPlayerDefinition);
+            }
+
+            if (_regularEnemies != null)
+            {
+                foreach (var enemy in _regularEnemies)
+                {
+                    Object.DestroyImmediate(enemy);
+                }
+            }
+
+            if (_bossEnemy != null)
+            {
+                Object.DestroyImmediate(_bossEnemy);
+            }
+        }
+
+        private static EnemyDefinition CreateEnemyDefinition(
+            string id, string displayName, int maxHp, int maxMp, int attack, int defense, int agility, int magic, int rewardExperience)
+        {
+            var definition = ScriptableObject.CreateInstance<EnemyDefinition>();
+            SetPrivateField(definition, "_id", id);
+            SetPrivateField(definition, "_displayName", displayName);
+            SetPrivateField(definition, "_maxHp", maxHp);
+            SetPrivateField(definition, "_maxMp", maxMp);
+            SetPrivateField(definition, "_attack", attack);
+            SetPrivateField(definition, "_defense", defense);
+            SetPrivateField(definition, "_agility", agility);
+            SetPrivateField(definition, "_magic", magic);
+            SetPrivateField(definition, "_rewardExperience", rewardExperience);
+            return definition;
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)
@@ -104,7 +144,9 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             PendingBattleContext pendingBattle,
             Camera battleCamera,
             AudioListener battleAudioListener,
-            EventSystem battleEventSystem)
+            EventSystem battleEventSystem,
+            bool includeRegularEnemies = true,
+            EquipmentDefinition[] equipmentCatalog = null)
         {
             _rootObject = new GameObject("Root");
             var root = _rootObject.AddComponent<GameCompositionRoot>();
@@ -125,6 +167,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             var playerHpText = CreateText("PlayerHpText");
             _enemyHpText = CreateText("EnemyHpText");
             var logText = CreateText("LogText");
+            _logText = logText;
             var resultText = CreateText("ResultText");
 
             _resultPanel = new GameObject("ResultPanel");
@@ -141,11 +184,44 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
 
             _battleUiObject.SetActive(true);
 
+            _fallbackPlayerDefinition = ScriptableObject.CreateInstance<InitialPlayerDefinition>();
+            SetPrivateField(_fallbackPlayerDefinition, "_displayName", "Hero");
+            SetPrivateField(_fallbackPlayerDefinition, "_minLevel", 1);
+            SetPrivateField(_fallbackPlayerDefinition, "_maxLevel", 10);
+            SetPrivateField(_fallbackPlayerDefinition, "_baseMaxHp", 20);
+            SetPrivateField(_fallbackPlayerDefinition, "_baseMaxMp", 5);
+            SetPrivateField(_fallbackPlayerDefinition, "_baseAttack", 5);
+            SetPrivateField(_fallbackPlayerDefinition, "_baseDefense", 3);
+            SetPrivateField(_fallbackPlayerDefinition, "_baseAgility", 5);
+            SetPrivateField(_fallbackPlayerDefinition, "_baseMagic", 2);
+            SetPrivateField(_fallbackPlayerDefinition, "_growthMaxHp", 4);
+            SetPrivateField(_fallbackPlayerDefinition, "_growthMaxMp", 1);
+            SetPrivateField(_fallbackPlayerDefinition, "_growthAttack", 2);
+            SetPrivateField(_fallbackPlayerDefinition, "_growthDefense", 1);
+            SetPrivateField(_fallbackPlayerDefinition, "_growthAgility", 1);
+            SetPrivateField(_fallbackPlayerDefinition, "_growthMagic", 1);
+            SetPrivateField(_fallbackPlayerDefinition, "_cumulativeExperienceByLevel", new[] { 0, 10, 25, 45, 70, 100, 140, 190, 250, 320 });
+
+            // All three regular-enemy fixtures share identical stats so that the random
+            // pick among them (BattleSceneInstaller.PickRegularEnemy) does not make HP-display
+            // assertions flaky; PickRegularEnemy itself is covered deterministically elsewhere.
+            _regularEnemies = new[]
+            {
+                CreateEnemyDefinition("test_regular_a", "RegularA", 12, 0, 6, 1, 4, 0, 5),
+                CreateEnemyDefinition("test_regular_b", "RegularB", 12, 0, 6, 1, 4, 0, 5),
+                CreateEnemyDefinition("test_regular_c", "RegularC", 12, 0, 6, 1, 4, 0, 5),
+            };
+            _bossEnemy = CreateEnemyDefinition("test_boss", "Boss", 40, 10, 8, 4, 3, 2, 50);
+
             _installerObject = new GameObject("BattleSceneInstaller");
             var installer = _installerObject.AddComponent<BattleSceneInstaller>();
             SetPrivateField(installer, "_battleCamera", battleCamera);
             SetPrivateField(installer, "_battleAudioListener", battleAudioListener);
             SetPrivateField(installer, "_battleEventSystem", battleEventSystem);
+            SetPrivateField(installer, "_fallbackPlayerDefinition", _fallbackPlayerDefinition);
+            SetPrivateField(installer, "_regularEnemies", includeRegularEnemies ? _regularEnemies : null);
+            SetPrivateField(installer, "_bossEnemy", _bossEnemy);
+            SetPrivateField(installer, "_equipmentCatalog", equipmentCatalog);
 
             yield return null;
         }
@@ -156,7 +232,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             var playerStats = new CharacterStats(3, 40, 10, 12, 4, 8, 3);
             var session = new PlayerSessionState(
                 SceneId.Battle, playerStats, 50, 40, 10,
-                new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
+                new FloatingIslandsRpg.Domain.Quests.MainQuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress());
 
@@ -204,7 +280,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             var playerStats = new CharacterStats(3, 40, 10, 12, 4, 8, 3);
             var session = new PlayerSessionState(
                 SceneId.Village, playerStats, 50, 17, 6,
-                new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
+                new FloatingIslandsRpg.Domain.Quests.MainQuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress());
 
@@ -250,7 +326,7 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             var playerStats = new CharacterStats(3, 40, 10, 12, 4, 8, 3);
             var session = new PlayerSessionState(
                 SceneId.Battle, playerStats, 50, 40, 10,
-                new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
+                new FloatingIslandsRpg.Domain.Quests.MainQuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
                 new FloatingIslandsRpg.Domain.Quests.QuestProgress());
 
@@ -602,7 +678,8 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
         [UnityTest]
         public IEnumerator BattleEnded_BossEncounterVictory_TransitionsToGameClearInstead()
         {
-            yield return BuildScene(null, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.DefeatBoss);
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
 
             InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
             yield return null;
@@ -611,6 +688,74 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             Assert.IsNull(_fakeSceneLoader.LastUnloadedSceneId);
             Assert.AreEqual(BattleOutcome.PlayerVictory, _services.LastBattleOutcome);
             Assert.IsNull(_services.PendingBattle);
+            Assert.AreEqual(FloatingIslandsRpg.Domain.Quests.MainQuestStage.Completed, session.MainQuest.CurrentStage);
+        }
+
+        private static PlayerSessionState CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage stage)
+        {
+            var mainQuest = new FloatingIslandsRpg.Domain.Quests.MainQuestProgress();
+            if (stage >= FloatingIslandsRpg.Domain.Quests.MainQuestStage.ExploreField)
+            {
+                mainQuest.Start();
+            }
+
+            if (stage >= FloatingIslandsRpg.Domain.Quests.MainQuestStage.EnterDungeon)
+            {
+                mainQuest.AdvanceToEnterDungeon();
+            }
+
+            if (stage >= FloatingIslandsRpg.Domain.Quests.MainQuestStage.DefeatBoss)
+            {
+                mainQuest.AdvanceToDefeatBoss();
+            }
+
+            var stats = new CharacterStats(3, 40, 10, 12, 4, 8, 3);
+            return new PlayerSessionState(
+                SceneId.Battle, stats, 50, 40, 10,
+                mainQuest,
+                new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
+                new FloatingIslandsRpg.Domain.Quests.QuestProgress());
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_BossVictoryWithMainQuestNotAtDefeatBoss_ReturnsInsteadOfGameClear()
+        {
+            // The main quest was never advanced to DefeatBoss (e.g. the player skipped the
+            // quest NPC / Field / Dungeon gating entirely); PROJECT.md T-021 requires both the
+            // boss win AND a Completed main quest before GameClear is reached.
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("boss defeated without the main quest"));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(SceneId.Battle, _fakeSceneLoader.LastUnloadedSceneId);
+            Assert.IsNull(_fakeSceneLoader.LastLoadedSceneId);
+            Assert.IsFalse(_services.LastBattleOutcome.HasValue);
+            Assert.IsNull(_services.PendingBattle);
+            Assert.AreEqual(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted, session.MainQuest.CurrentStage);
+
+            Object.DestroyImmediate(gateObject);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_BossVictoryWithoutCurrentSession_ReturnsInsteadOfGameClear()
+        {
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            yield return BuildScene(null, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("boss defeated without the main quest"));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(SceneId.Battle, _fakeSceneLoader.LastUnloadedSceneId);
+            Assert.IsFalse(_services.LastBattleOutcome.HasValue);
+
+            Object.DestroyImmediate(gateObject);
         }
 
         [UnityTest]
@@ -639,6 +784,418 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             Assert.IsNull(_fakeSceneLoader.LastUnloadedSceneId);
             Assert.AreEqual(BattleOutcome.PlayerDefeat, _services.LastBattleOutcome);
             Assert.IsNull(_services.PendingBattle);
+        }
+
+        // --- T-022: real MasterData asset wiring ---
+
+        [Test]
+        public void PickRegularEnemy_RollAtLowerBound_ReturnsFirstCandidate()
+        {
+            var candidates = _regularEnemies = new[]
+            {
+                CreateEnemyDefinition("a", "A", 1, 0, 0, 0, 0, 0, 0),
+                CreateEnemyDefinition("b", "B", 1, 0, 0, 0, 0, 0, 0),
+                CreateEnemyDefinition("c", "C", 1, 0, 0, 0, 0, 0, 0),
+            };
+
+            Assert.AreSame(candidates[0], BattleSceneInstaller.PickRegularEnemy(candidates, 0.0));
+        }
+
+        [Test]
+        public void PickRegularEnemy_RollJustBelowUpperBound_ReturnsLastCandidate()
+        {
+            var candidates = _regularEnemies = new[]
+            {
+                CreateEnemyDefinition("a", "A", 1, 0, 0, 0, 0, 0, 0),
+                CreateEnemyDefinition("b", "B", 1, 0, 0, 0, 0, 0, 0),
+                CreateEnemyDefinition("c", "C", 1, 0, 0, 0, 0, 0, 0),
+            };
+
+            Assert.AreSame(candidates[2], BattleSceneInstaller.PickRegularEnemy(candidates, 0.999));
+        }
+
+        [Test]
+        public void PickRegularEnemy_RollAtExactUpperBound_ClampsToLastCandidate()
+        {
+            var candidates = _regularEnemies = new[]
+            {
+                CreateEnemyDefinition("a", "A", 1, 0, 0, 0, 0, 0, 0),
+                CreateEnemyDefinition("b", "B", 1, 0, 0, 0, 0, 0, 0),
+            };
+
+            // NextDouble()'s contract is [0.0, 1.0), but 1.0 is defended against anyway so an
+            // out-of-range roll can never index past the array.
+            Assert.AreSame(candidates[1], BattleSceneInstaller.PickRegularEnemy(candidates, 1.0));
+        }
+
+        [Test]
+        public void PickRegularEnemy_MiddleRoll_ReturnsMiddleCandidate()
+        {
+            var candidates = _regularEnemies = new[]
+            {
+                CreateEnemyDefinition("a", "A", 1, 0, 0, 0, 0, 0, 0),
+                CreateEnemyDefinition("b", "B", 1, 0, 0, 0, 0, 0, 0),
+                CreateEnemyDefinition("c", "C", 1, 0, 0, 0, 0, 0, 0),
+            };
+
+            Assert.AreSame(candidates[1], BattleSceneInstaller.PickRegularEnemy(candidates, 0.5));
+        }
+
+        [UnityTest]
+        public IEnumerator Start_MissingRegularEnemies_LogsErrorAndDoesNotBindBattle()
+        {
+            // ValidateBattlePresentationReferences() runs before ValidateMasterDataReferences()
+            // in Start(), so LogAssert's expectations must be registered in that emission order.
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("_battleCamera"));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("_battleAudioListener"));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("_battleEventSystem"));
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("_regularEnemies"));
+
+            yield return BuildScene(null, null, null, null, null, includeRegularEnemies: false);
+
+            // Bind() was never reached: BattleUIController's HP text is only ever populated by
+            // RefreshHpDisplay(), which Bind() calls. An empty string proves Start() aborted
+            // before constructing/binding a BattleSession.
+            Assert.AreEqual(string.Empty, _enemyHpText.text);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_WithMultipleRegularEnemyOptions_AllOptionsAreValidCandidates()
+        {
+            yield return BuildScene(null, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            // All three fixtures share the same stats (see BuildScene), so regardless of which
+            // one SystemRandomSource happens to pick, the resulting enemy HP must be one of the
+            // configured candidates' MaxHp values.
+            var expectedHp = _regularEnemies[0].ToMasterData().MaxHp;
+            Assert.AreEqual($"HP {expectedHp}/{expectedHp}", _enemyHpText.text);
+        }
+
+        // --- T-023: battle reward / experience / level-up integration ---
+
+        [UnityTest]
+        public IEnumerator BattleEnded_RegularEncounterVictory_GrantsRewardExperienceOnce()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            var startingExperience = session.TotalExperience;
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(startingExperience + _regularEnemies[0].ToMasterData().RewardExperience, session.TotalExperience);
+            StringAssert.Contains("EXP +", _logText.text);
+
+            Object.DestroyImmediate(gateObject);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_BossVictory_GrantsBossRewardExperience()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.DefeatBoss);
+            var startingExperience = session.TotalExperience;
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(startingExperience + _bossEnemy.ToMasterData().RewardExperience, session.TotalExperience);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_Defeat_DoesNotGrantExperience()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var startingExperience = session.TotalExperience;
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerDefeat);
+            yield return null;
+
+            Assert.AreEqual(startingExperience, session.TotalExperience);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_InvokedTwice_DoesNotGrantRewardTwice()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            var startingExperience = session.TotalExperience;
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(startingExperience + _regularEnemies[0].ToMasterData().RewardExperience, session.TotalExperience);
+
+            Object.DestroyImmediate(gateObject);
+        }
+
+        // --- Codex review Major 1: OnBattleEnded must run its full sequence at most once ---
+
+        [UnityTest]
+        public IEnumerator BattleEnded_InvokedTwice_BossVictory_GameClearTransitionRequestedOnce()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.DefeatBoss);
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(1, _fakeSceneLoader.LoadCallCount);
+            Assert.AreEqual(SceneId.GameClear, _fakeSceneLoader.LastLoadedSceneId);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_InvokedTwice_SecondOutcomeDoesNotOverwriteLastBattleOutcome()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.DefeatBoss);
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerDefeat);
+            yield return null;
+
+            Assert.AreEqual(BattleOutcome.PlayerVictory, _services.LastBattleOutcome);
+            Assert.AreEqual(1, _fakeSceneLoader.LoadCallCount);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_InvokedTwice_RegularVictory_ReturnToFieldRequestedOnce()
+        {
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            yield return BuildScene(null, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(1, _fakeSceneLoader.UnloadCallCount);
+
+            Object.DestroyImmediate(gateObject);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_InvokedTwice_MainQuestAdvancedOnce()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.DefeatBoss);
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(FloatingIslandsRpg.Domain.Quests.MainQuestStage.Completed, session.MainQuest.CurrentStage);
+            // A second (buggy, unguarded) pass through OnBattleEnded would have re-entered the
+            // PlayerVictory/IsBossEncounter branch and requested a second GameClear transition;
+            // this is the externally observable symptom the guard prevents.
+            Assert.AreEqual(1, _fakeSceneLoader.LoadCallCount);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_InvokedTwice_PendingBattleConsumedOnce()
+        {
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            yield return BuildScene(null, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            // Simulate a new encounter's PendingBattle having already been armed by the time a
+            // stale, duplicated BattleEnded call for the *previous* battle arrives.
+            var nextPending = new PendingBattleContext(SceneId.Dungeon, isBossEncounter: true);
+            _services.PendingBattle = nextPending;
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreSame(nextPending, _services.PendingBattle);
+
+            Object.DestroyImmediate(gateObject);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_NewInstallerInstance_HandlesOwnBattleEndIndependently()
+        {
+            var sessionA = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var gateObjectA = new GameObject("GateA");
+            gateObjectA.AddComponent<FieldActivityGate>();
+            var startingExperienceA = sessionA.TotalExperience;
+            yield return BuildScene(sessionA, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(startingExperienceA + _regularEnemies[0].ToMasterData().RewardExperience, sessionA.TotalExperience);
+            Object.DestroyImmediate(gateObjectA);
+
+            // Tear down and rebuild a brand new BattleSceneInstaller instance, exactly as a fresh
+            // Battle Scene load would (new encounter, or a Retry). Its own _battleEndHandled must
+            // start false again -- there is no shared/static state across instances.
+            Object.DestroyImmediate(_installerObject);
+            _installerObject = null;
+            Object.DestroyImmediate(_battleUiObject);
+            _battleUiObject = null;
+            Object.DestroyImmediate(_resultPanel);
+            _resultPanel = null;
+            Object.DestroyImmediate(_rootObject);
+            _rootObject = null;
+            Object.DestroyImmediate(_defaultBattleCameraObject);
+            _defaultBattleCameraObject = null;
+            Object.DestroyImmediate(_defaultBattleEventSystemObject);
+            _defaultBattleEventSystemObject = null;
+
+            var sessionB = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var gateObjectB = new GameObject("GateB");
+            gateObjectB.AddComponent<FieldActivityGate>();
+            var startingExperienceB = sessionB.TotalExperience;
+            yield return BuildScene(sessionB, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(startingExperienceB + _regularEnemies[0].ToMasterData().RewardExperience, sessionB.TotalExperience);
+
+            Object.DestroyImmediate(gateObjectB);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_RewardCausesLevelUp_UpdatesStatsAndDisplaysLevelUp()
+        {
+            // Level 1 with 0 experience; the fixture's cumulative table requires 10 XP for
+            // level 2, and RegularA/B/C fixtures each grant 5 XP -- not enough by itself, so
+            // stack two battles' worth via a session already sitting at 9 XP.
+            var stats = new CharacterStats(1, 20, 5, 5, 3, 5, 2);
+            var session = new PlayerSessionState(
+                SceneId.Battle, stats, 9, 20, 5,
+                new FloatingIslandsRpg.Domain.Quests.MainQuestProgress(),
+                new FloatingIslandsRpg.Domain.Quests.QuestProgress(),
+                new FloatingIslandsRpg.Domain.Quests.QuestProgress());
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(14, session.TotalExperience);
+            Assert.AreEqual(2, session.Stats.Level);
+            StringAssert.Contains("Level Up! Lv.2", _logText.text);
+
+            Object.DestroyImmediate(gateObject);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_WithoutCurrentSession_GrantRewardDoesNotThrow()
+        {
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            yield return BuildScene(null, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(SceneId.Battle, _fakeSceneLoader.LastUnloadedSceneId);
+
+            Object.DestroyImmediate(gateObject);
+        }
+
+        // --- T-024: equipment bonus / battle item reward integration ---
+
+        private static EquipmentDefinition CreateEquipmentDefinition(string id, string displayName, EquipmentSlot slot, int attackBonus, int defenseBonus)
+        {
+            var definition = ScriptableObject.CreateInstance<EquipmentDefinition>();
+            SetPrivateField(definition, "_id", id);
+            SetPrivateField(definition, "_displayName", displayName);
+            SetPrivateField(definition, "_slot", slot);
+            SetPrivateField(definition, "_attackBonus", attackBonus);
+            SetPrivateField(definition, "_defenseBonus", defenseBonus);
+            return definition;
+        }
+
+        private static BattleSession GetBoundSession(BattleUIController controller)
+        {
+            var field = typeof(BattleUIController).GetField("_session", BindingFlags.NonPublic | BindingFlags.Instance);
+            return (BattleSession)field.GetValue(controller);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_EquippedWeapon_AppliesAttackBonusToBattleParticipantStats()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var baseAttack = session.Stats.Attack;
+            session.Inventory.Add("equip_test_sword", 1);
+            session.Equipment.EquipWeapon("equip_test_sword");
+            var weapon = CreateEquipmentDefinition("equip_test_sword", "TestSword", EquipmentSlot.Weapon, 8, 0);
+            var battle = CreateBattleSidePresentation();
+
+            yield return BuildScene(
+                session, new PendingBattleContext(SceneId.Field, isBossEncounter: false),
+                battle.camera, battle.audioListener, battle.eventSystem, equipmentCatalog: new[] { weapon });
+
+            var boundSession = GetBoundSession(_controller);
+            Assert.AreEqual(baseAttack + 8, boundSession.Player.Stats.Attack);
+
+            Object.DestroyImmediate(weapon);
+            Object.DestroyImmediate(battle.cameraObject);
+            Object.DestroyImmediate(battle.eventSystemObject);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_NoEquipmentEquipped_UsesBaseAttackUnchanged()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var baseAttack = session.Stats.Attack;
+            var weapon = CreateEquipmentDefinition("equip_test_sword", "TestSword", EquipmentSlot.Weapon, 8, 0);
+            var battle = CreateBattleSidePresentation();
+
+            yield return BuildScene(
+                session, new PendingBattleContext(SceneId.Field, isBossEncounter: false),
+                battle.camera, battle.audioListener, battle.eventSystem, equipmentCatalog: new[] { weapon });
+
+            var boundSession = GetBoundSession(_controller);
+            Assert.AreEqual(baseAttack, boundSession.Player.Stats.Attack);
+
+            Object.DestroyImmediate(weapon);
+            Object.DestroyImmediate(battle.cameraObject);
+            Object.DestroyImmediate(battle.eventSystemObject);
+        }
+
+        [UnityTest]
+        public IEnumerator BattleEnded_Victory_GrantsConfiguredItemRewardOnce()
+        {
+            var session = CreateSessionWithMainQuestAtStage(FloatingIslandsRpg.Domain.Quests.MainQuestStage.NotStarted);
+            var gateObject = new GameObject("Gate");
+            gateObject.AddComponent<FieldActivityGate>();
+            var itemReward = ScriptableObject.CreateInstance<ItemDefinition>();
+            SetPrivateField(itemReward, "_id", "item_small_potion");
+            SetPrivateField(itemReward, "_displayName", "Small Potion");
+            SetPrivateField(itemReward, "_healAmount", 20);
+
+            yield return BuildScene(session, new PendingBattleContext(SceneId.Field, isBossEncounter: false));
+            SetPrivateField(_installerObject.GetComponent<BattleSceneInstaller>(), "_victoryItemReward", itemReward);
+
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+            InvokeBattleEnded(_controller, BattleOutcome.PlayerVictory);
+            yield return null;
+
+            Assert.AreEqual(1, session.Inventory.GetQuantity("item_small_potion"));
+
+            Object.DestroyImmediate(gateObject);
+            Object.DestroyImmediate(itemReward);
         }
     }
 }
