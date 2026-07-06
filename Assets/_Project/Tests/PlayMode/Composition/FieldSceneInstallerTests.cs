@@ -224,6 +224,68 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Composition
             Assert.AreEqual(MainQuestStage.NotStarted, session.MainQuest.CurrentStage);
         }
 
+        private static PlayerSessionState CreateSessionWithSubQuest1(QuestState subQuest1State)
+        {
+            var subQuest1 = new QuestProgress();
+            if (subQuest1State == QuestState.InProgress || subQuest1State == QuestState.Completed)
+            {
+                subQuest1.Start();
+            }
+
+            if (subQuest1State == QuestState.Completed)
+            {
+                subQuest1.Complete();
+            }
+
+            var stats = new CharacterStats(1, 20, 5, 5, 3, 5, 2);
+            return new PlayerSessionState(
+                SceneId.Field, stats, 0, 20, 5, new MainQuestProgress(), subQuest1, new QuestProgress());
+        }
+
+        [UnityTest]
+        public IEnumerator Start_SubQuest1InProgress_CompletesSubQuest1()
+        {
+            var session = CreateSessionWithSubQuest1(QuestState.InProgress);
+            yield return BuildScene(session);
+
+            Assert.AreEqual(QuestState.Completed, session.SubQuest1.CurrentState);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_SubQuest1NotStarted_DoesNotComplete()
+        {
+            var session = CreateSessionWithSubQuest1(QuestState.NotStarted);
+            yield return BuildScene(session);
+
+            Assert.AreEqual(QuestState.NotStarted, session.SubQuest1.CurrentState);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_SubQuest1AlreadyCompleted_StaysCompletedAndDoesNotThrow()
+        {
+            var session = CreateSessionWithSubQuest1(QuestState.Completed);
+
+            yield return BuildScene(session);
+
+            Assert.AreEqual(QuestState.Completed, session.SubQuest1.CurrentState);
+        }
+
+        [UnityTest]
+        public IEnumerator Start_SubQuest1InProgress_DoesNotAffectMainQuestOrSubQuest2()
+        {
+            var mainQuest = new MainQuestProgress();
+            var subQuest1 = new QuestProgress();
+            subQuest1.Start();
+            var subQuest2 = new QuestProgress();
+            var stats = new CharacterStats(1, 20, 5, 5, 3, 5, 2);
+            var session = new PlayerSessionState(SceneId.Field, stats, 0, 20, 5, mainQuest, subQuest1, subQuest2);
+            yield return BuildScene(session);
+
+            Assert.AreEqual(QuestState.Completed, session.SubQuest1.CurrentState);
+            Assert.AreEqual(QuestState.NotStarted, session.SubQuest2.CurrentState);
+            Assert.AreEqual(MainQuestStage.NotStarted, session.MainQuest.CurrentStage);
+        }
+
         [UnityTest]
         public IEnumerator Start_WithoutCurrentSession_DoesNotThrowAndSceneStillFunctions()
         {

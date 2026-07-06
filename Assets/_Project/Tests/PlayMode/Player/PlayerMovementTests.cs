@@ -102,20 +102,39 @@ namespace FloatingIslandsRpg.Tests.PlayMode.Player
         [UnityTest]
         public IEnumerator Update_WhenDiagonalHeld_DoesNotExceedAxisAlignedDisplacementMagnitude()
         {
-            var axisResult = new HorizontalSpeedResult();
-            yield return MeasureHorizontalSpeed(new[] { _keyboard.wKey }, SampleFrameCount, TestMoveSpeed, axisResult);
+            // This measurement integrates real CharacterController displacement over
+            // Time.deltaTime across several frames. Under `-batchmode` (no vsync/display to
+            // pace the frame loop), per-frame Time.deltaTime is extremely small and volatile
+            // -- unlike in the interactive Editor -- which starves CharacterController.Move()
+            // of enough distance-per-frame to register at all (observed: total displacement
+            // collapsing to 0 despite a nonzero, tiny accumulated deltaTime). Time.captureDeltaTime
+            // is Unity's own supported mechanism for pinning Time.deltaTime to a fixed, known
+            // value regardless of real frame pacing/rendering environment, so this test measures
+            // the same real Update()/CharacterController.Move() production code path at a
+            // deterministic, representative frame time (1/60s) instead of depending on
+            // wall-clock/frame-rate/rendering conditions. PlayerMovement itself is unchanged.
+            Time.captureDeltaTime = 1f / 60f;
+            try
+            {
+                var axisResult = new HorizontalSpeedResult();
+                yield return MeasureHorizontalSpeed(new[] { _keyboard.wKey }, SampleFrameCount, TestMoveSpeed, axisResult);
 
-            var diagonalResult = new HorizontalSpeedResult();
-            yield return MeasureHorizontalSpeed(new[] { _keyboard.wKey, _keyboard.dKey }, SampleFrameCount, TestMoveSpeed, diagonalResult);
+                var diagonalResult = new HorizontalSpeedResult();
+                yield return MeasureHorizontalSpeed(new[] { _keyboard.wKey, _keyboard.dKey }, SampleFrameCount, TestMoveSpeed, diagonalResult);
 
-            var failureMessage = $"axisSpeed={axisResult.Speed}, diagonalSpeed={diagonalResult.Speed}, " +
-                $"moveSpeed={TestMoveSpeed}, frameCount={SampleFrameCount}, " +
-                $"axisDeltaTimeTotal={axisResult.TotalDeltaTime}, diagonalDeltaTimeTotal={diagonalResult.TotalDeltaTime}, " +
-                $"ratio={diagonalResult.Speed / axisResult.Speed}";
+                var failureMessage = $"axisSpeed={axisResult.Speed}, diagonalSpeed={diagonalResult.Speed}, " +
+                    $"moveSpeed={TestMoveSpeed}, frameCount={SampleFrameCount}, " +
+                    $"axisDeltaTimeTotal={axisResult.TotalDeltaTime}, diagonalDeltaTimeTotal={diagonalResult.TotalDeltaTime}, " +
+                    $"ratio={diagonalResult.Speed / axisResult.Speed}";
 
-            Assert.That(axisResult.Speed, Is.EqualTo(TestMoveSpeed).Within(TestMoveSpeed * SpeedToleranceRatio), failureMessage);
-            Assert.That(diagonalResult.Speed, Is.EqualTo(TestMoveSpeed).Within(TestMoveSpeed * SpeedToleranceRatio), failureMessage);
-            Assert.LessOrEqual(diagonalResult.Speed, axisResult.Speed * (1f + SpeedToleranceRatio), failureMessage);
+                Assert.That(axisResult.Speed, Is.EqualTo(TestMoveSpeed).Within(TestMoveSpeed * SpeedToleranceRatio), failureMessage);
+                Assert.That(diagonalResult.Speed, Is.EqualTo(TestMoveSpeed).Within(TestMoveSpeed * SpeedToleranceRatio), failureMessage);
+                Assert.LessOrEqual(diagonalResult.Speed, axisResult.Speed * (1f + SpeedToleranceRatio), failureMessage);
+            }
+            finally
+            {
+                Time.captureDeltaTime = 0f;
+            }
         }
 
         private static IEnumerator WaitFrames(int frameCount)
