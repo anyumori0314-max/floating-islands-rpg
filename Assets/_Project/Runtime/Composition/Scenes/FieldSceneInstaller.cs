@@ -22,6 +22,7 @@ namespace FloatingIslandsRpg.Composition.Scenes
         [SerializeField] private int _pickupQuantity = 1;
 
         private readonly AdvanceMainQuestUseCase _advanceMainQuestUseCase = new AdvanceMainQuestUseCase();
+        private readonly CompleteSubQuestUseCase _completeSubQuestUseCase = new CompleteSubQuestUseCase();
         private readonly AddItemUseCase _addItemUseCase = new AddItemUseCase();
 
         private GameServices _services;
@@ -43,6 +44,11 @@ namespace FloatingIslandsRpg.Composition.Scenes
             if (_services.CurrentSession != null)
             {
                 _advanceMainQuestUseCase.Execute(_services.CurrentSession.MainQuest, MainQuestEvent.FieldReached);
+
+                // SubQuest1's objective is simply "reach the Field" (PROJECT.md T-025: independent
+                // of MainQuest); CompleteSubQuestUseCase safely no-ops if it was never started or
+                // already completed.
+                _completeSubQuestUseCase.Execute(_services.CurrentSession.SubQuest1);
             }
 
             _activityGate = FindFirstObjectByType<FieldActivityGate>();

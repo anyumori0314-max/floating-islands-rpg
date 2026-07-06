@@ -1,14 +1,7 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using FloatingIslandsRpg.Application.Inventory;
 using FloatingIslandsRpg.Application.Quests;
 using FloatingIslandsRpg.Application.Scenes;
-using FloatingIslandsRpg.Domain.MasterData;
-using FloatingIslandsRpg.Infrastructure.MasterData;
 using FloatingIslandsRpg.Presentation.Dialogue;
-using FloatingIslandsRpg.Presentation.Items;
 using FloatingIslandsRpg.Presentation.Scenes;
 using UnityEngine;
 
@@ -20,16 +13,19 @@ namespace FloatingIslandsRpg.Composition.Scenes
         // Assigned in the Inspector (Village.unity); no name-based lookup.
         [SerializeField] private NpcInteractable _mainQuestGiver;
 
-        // Minimal inventory/equipment confirmation UI (PROJECT.md T-024). Optional: if unset,
-        // Village simply has no inventory panel (does not block the rest of the scene).
-        [SerializeField] private InventoryPanelController _inventoryPanel;
-        [SerializeField] private ItemDefinition[] _items;
-        [SerializeField] private EquipmentDefinition[] _weapons;
-        [SerializeField] private EquipmentDefinition[] _armors;
+        // The two NPCs whose dialogue starts each subquest (PROJECT.md T-025: "サブクエスト2本の
+        // 実装", independent of MainQuest). Assigned in the Inspector (Village.unity); no
+        // name-based lookup. Optional: an unset giver simply never offers that subquest.
+        [SerializeField] private NpcInteractable _subQuest1Giver;
+        [SerializeField] private NpcInteractable _subQuest2Giver;
+
+        // Inventory/Equipment confirmation UI moved to the shared MenuInstaller/GameMenuController
+        // (PROJECT.md T-026: "既存InventoryPanelControllerの責務を整理し、本格UIとして拡張", used
+        // identically from Village/Field/Dungeon) -- this installer no longer owns any Inventory/
+        // Equipment wiring itself.
 
         private readonly StartMainQuestUseCase _startMainQuestUseCase = new StartMainQuestUseCase();
-        private readonly ConsumeItemUseCase _consumeItemUseCase = new ConsumeItemUseCase();
-        private readonly EquipItemUseCase _equipItemUseCase = new EquipItemUseCase();
+        private readonly StartSubQuestUseCase _startSubQuestUseCase = new StartSubQuestUseCase();
 
         private GameServices _services;
         private SceneTransitionTrigger[] _transitionTriggers;
@@ -46,12 +42,14 @@ namespace FloatingIslandsRpg.Composition.Scenes
                 _mainQuestGiver.DialogueStarted += OnMainQuestGiverDialogueStarted;
             }
 
-            if (_inventoryPanel != null)
+            if (_subQuest1Giver != null)
             {
-                _inventoryPanel.UsePotionRequested += OnUsePotionRequested;
-                _inventoryPanel.EquipWeaponRequested += OnEquipWeaponRequested;
-                _inventoryPanel.EquipArmorRequested += OnEquipArmorRequested;
-                RefreshInventoryPanel();
+                _subQuest1Giver.DialogueStarted += OnSubQuest1GiverDialogueStarted;
+            }
+
+            if (_subQuest2Giver != null)
+            {
+                _subQuest2Giver.DialogueStarted += OnSubQuest2GiverDialogueStarted;
             }
 
             _transitionTriggers = FindObjectsByType<SceneTransitionTrigger>(FindObjectsSortMode.None);
@@ -68,11 +66,14 @@ namespace FloatingIslandsRpg.Composition.Scenes
                 _mainQuestGiver.DialogueStarted -= OnMainQuestGiverDialogueStarted;
             }
 
-            if (_inventoryPanel != null)
+            if (_subQuest1Giver != null)
             {
-                _inventoryPanel.UsePotionRequested -= OnUsePotionRequested;
-                _inventoryPanel.EquipWeaponRequested -= OnEquipWeaponRequested;
-                _inventoryPanel.EquipArmorRequested -= OnEquipArmorRequested;
+                _subQuest1Giver.DialogueStarted -= OnSubQuest1GiverDialogueStarted;
+            }
+
+            if (_subQuest2Giver != null)
+            {
+                _subQuest2Giver.DialogueStarted -= OnSubQuest2GiverDialogueStarted;
             }
 
             if (_transitionTriggers == null)
@@ -96,152 +97,24 @@ namespace FloatingIslandsRpg.Composition.Scenes
             _startMainQuestUseCase.Execute(_services.CurrentSession.MainQuest);
         }
 
-        private void OnUsePotionRequested()
+        private void OnSubQuest1GiverDialogueStarted()
         {
-            var session = _services.CurrentSession;
-            if (session == null || _items == null)
+            if (_services.CurrentSession == null)
             {
                 return;
             }
 
-            var catalog = BuildItemCatalog();
-            var ownedItemId = _items
-                .Where(item => item != null)
-                .Select(item => item.ToMasterData().Id)
-                .FirstOrDefault(id => session.Inventory.GetQuantity(id) > 0);
+            _startSubQuestUseCase.Execute(_services.CurrentSession.SubQuest1);
+        }
 
-            if (ownedItemId == null)
+        private void OnSubQuest2GiverDialogueStarted()
+        {
+            if (_services.CurrentSession == null)
             {
                 return;
             }
 
-            _consumeItemUseCase.Execute(session.Inventory, session, catalog, ownedItemId);
-            RefreshInventoryPanel();
-        }
-
-        private void OnEquipWeaponRequested() => EquipFirstOwnedNotEquipped(_weapons, EquipmentSlot.Weapon);
-
-        private void OnEquipArmorRequested() => EquipFirstOwnedNotEquipped(_armors, EquipmentSlot.Armor);
-
-        private void EquipFirstOwnedNotEquipped(EquipmentDefinition[] candidates, EquipmentSlot slot)
-        {
-            var session = _services.CurrentSession;
-            if (session == null || candidates == null)
-            {
-                return;
-            }
-
-            var currentlyEquipped = slot == EquipmentSlot.Weapon
-                ? session.Equipment.EquippedWeaponId
-                : session.Equipment.EquippedArmorId;
-
-            var catalog = BuildEquipmentCatalog();
-            var candidateId = candidates
-                .Where(equipment => equipment != null)
-                .Select(equipment => equipment.ToMasterData().Id)
-                .FirstOrDefault(id => session.Inventory.GetQuantity(id) > 0 && id != currentlyEquipped);
-
-            if (candidateId == null)
-            {
-                return;
-            }
-
-            _equipItemUseCase.Execute(session.Equipment, session.Inventory, catalog, candidateId, slot);
-            RefreshInventoryPanel();
-        }
-
-        private void RefreshInventoryPanel()
-        {
-            var session = _services.CurrentSession;
-            if (_inventoryPanel == null || session == null)
-            {
-                return;
-            }
-
-            var builder = new StringBuilder();
-
-            if (_items != null)
-            {
-                foreach (var item in _items)
-                {
-                    if (item == null)
-                    {
-                        continue;
-                    }
-
-                    var data = item.ToMasterData();
-                    builder.AppendLine($"{data.DisplayName} x{session.Inventory.GetQuantity(data.Id)}");
-                }
-            }
-
-            builder.AppendLine($"Weapon: {DisplayNameOrNone(_weapons, session.Equipment.EquippedWeaponId)}");
-            builder.Append($"Armor: {DisplayNameOrNone(_armors, session.Equipment.EquippedArmorId)}");
-
-            _inventoryPanel.Refresh(builder.ToString());
-        }
-
-        private static string DisplayNameOrNone(EquipmentDefinition[] candidates, string equippedId)
-        {
-            if (equippedId == null || candidates == null)
-            {
-                return "None";
-            }
-
-            foreach (var equipment in candidates)
-            {
-                if (equipment == null)
-                {
-                    continue;
-                }
-
-                var data = equipment.ToMasterData();
-                if (data.Id == equippedId)
-                {
-                    return data.DisplayName;
-                }
-            }
-
-            return "None";
-        }
-
-        private IReadOnlyDictionary<string, ItemMasterData> BuildItemCatalog()
-        {
-            var catalog = new Dictionary<string, ItemMasterData>(StringComparer.Ordinal);
-            if (_items == null)
-            {
-                return catalog;
-            }
-
-            foreach (var item in _items)
-            {
-                if (item == null)
-                {
-                    continue;
-                }
-
-                var data = item.ToMasterData();
-                catalog[data.Id] = data;
-            }
-
-            return catalog;
-        }
-
-        private IReadOnlyDictionary<string, EquipmentMasterData> BuildEquipmentCatalog()
-        {
-            var catalog = new Dictionary<string, EquipmentMasterData>(StringComparer.Ordinal);
-
-            foreach (var equipment in (_weapons ?? Array.Empty<EquipmentDefinition>()).Concat(_armors ?? Array.Empty<EquipmentDefinition>()))
-            {
-                if (equipment == null)
-                {
-                    continue;
-                }
-
-                var data = equipment.ToMasterData();
-                catalog[data.Id] = data;
-            }
-
-            return catalog;
+            _startSubQuestUseCase.Execute(_services.CurrentSession.SubQuest2);
         }
 
         private void OnTransitionRequested(SceneTransitionTrigger trigger, SceneId destination, SceneLoadMode loadMode)

@@ -11,6 +11,7 @@ namespace FloatingIslandsRpg.Composition.Scenes
     public sealed class DungeonSceneInstaller : MonoBehaviour
     {
         private readonly AdvanceMainQuestUseCase _advanceMainQuestUseCase = new AdvanceMainQuestUseCase();
+        private readonly CompleteSubQuestUseCase _completeSubQuestUseCase = new CompleteSubQuestUseCase();
 
         private GameServices _services;
         private FieldEncounterController _encounterController;
@@ -30,6 +31,11 @@ namespace FloatingIslandsRpg.Composition.Scenes
             if (_services.CurrentSession != null)
             {
                 _advanceMainQuestUseCase.Execute(_services.CurrentSession.MainQuest, MainQuestEvent.DungeonReached);
+
+                // SubQuest2's objective is simply "reach the Dungeon" (PROJECT.md T-025:
+                // independent of MainQuest); CompleteSubQuestUseCase safely no-ops if it was
+                // never started or already completed.
+                _completeSubQuestUseCase.Execute(_services.CurrentSession.SubQuest2);
             }
 
             _activityGate = FindFirstObjectByType<FieldActivityGate>();
