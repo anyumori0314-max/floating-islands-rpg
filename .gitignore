@@ -13,6 +13,10 @@
 /[Bb]uilds/
 /[Bb]uild/
 
+# Release packaging output (T-030: zip distributables, not committed)
+/[Rr]elease/
+*.zip
+
 # Local-only generated content (not part of the game's committed assets)
 /Assets/Screenshots/
 /Assets/Screenshots.meta
